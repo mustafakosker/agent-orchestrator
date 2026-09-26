@@ -555,6 +555,71 @@ func TestAuthReReadsCredentialPerRequest(t *testing.T) {
 	}
 }
 
+func TestNewWithOnlyHostCredentials(t *testing.T) {
+	for _, key := range []string{trackerjira.EnvEmail, trackerjira.EnvAPIToken, trackerjira.EnvPAT} {
+		t.Setenv(key, "")
+	}
+	for _, tc := range []struct {
+		name   string
+		source trackerjira.CredentialSource
+	}{
+		{"nil default", nil},
+		{"missing environment default", trackerjira.EnvCredentialSource{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			var authz atomic.Value
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				authz.Store(r.Header.Get("Authorization"))
+				fmt.Fprint(w, `{"issues":[]}`)
+			}))
+			defer srv.Close()
+			tr, err := trackerjira.New(trackerjira.Options{
+				Credential:   tc.source,
+				AllowedHosts: []string{testSite, "missing.example.com"},
+				HostCredentials: map[string]trackerjira.CredentialSource{
+					testSite: trackerjira.StaticCredentialSource{Token: "host-pat"},
+				},
+				HostBaseURLs: map[string]string{testSite: srv.URL, "missing.example.com": srv.URL},
+			})
+			if err != nil {
+				t.Fatalf("New with usable host credential: %v", err)
+			}
+			if calls.Load() != 0 {
+				t.Fatal("New made a network request")
+			}
+			filter := domain.ListFilter{State: domain.ListOpen}
+			if _, err := tr.List(context.Background(), jiraRepo(), filter); err != nil {
+				t.Fatalf("List with host credential: %v", err)
+			}
+			if got := authz.Load(); got != "Bearer host-pat" {
+				t.Fatalf("Authorization = %v, want host credential", got)
+			}
+			repo := jiraRepo()
+			repo.Host = "missing.example.com"
+			if _, err := tr.List(context.Background(), repo, filter); !errors.Is(err, trackerjira.ErrNoToken) {
+				t.Fatalf("List without host credential = %v, want ErrNoToken", err)
+			}
+			if calls.Load() != 1 {
+				t.Fatal("credential-less host made a network request")
+			}
+		})
+	}
+}
+
+func TestNewDoesNotUseUnlistedHostCredential(t *testing.T) {
+	_, err := trackerjira.New(trackerjira.Options{
+		AllowedHosts: []string{testSite},
+		HostCredentials: map[string]trackerjira.CredentialSource{
+			"unlisted.example.com": trackerjira.StaticCredentialSource{Token: "pat"},
+		},
+	})
+	if !errors.Is(err, trackerjira.ErrNoToken) {
+		t.Fatalf("New with only unlisted host credential = %v, want ErrNoToken", err)
+	}
+}
+
 func TestNewFailsFastWithoutCredential(t *testing.T) {
 	_, err := trackerjira.New(trackerjira.Options{AllowedHosts: []string{testSite}})
 	if !errors.Is(err, trackerjira.ErrNoToken) {

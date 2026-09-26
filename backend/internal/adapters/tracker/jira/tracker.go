@@ -70,8 +70,9 @@ var projectKeyRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,59}$`)
 // issueKeyRe is a project key, a hyphen, and a positive issue number.
 var issueKeyRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,59}-[1-9]\d*$`)
 
-// Options configures a Tracker. Only Credential is required; tests inject
-// HTTPClient and HostBaseURLs to point at an httptest fake.
+// Options configures a Tracker. A usable default credential or an allowed
+// host's credential is required; tests inject HTTPClient and HostBaseURLs to
+// point at an httptest fake.
 //
 // AllowedHosts is the list of Jira sites the tracker may talk to. There is no
 // implicit default site — unlike GitLab, where Host "" means gitlab.com — so a
@@ -119,11 +120,11 @@ var _ ports.Tracker = (*Tracker)(nil)
 func New(opts Options) (*Tracker, error) {
 	src := opts.Credential
 	if src == nil {
-		return nil, ErrNoToken
+		// Keep credential-less hosts safe to call when another host enables
+		// the tracker. Requests to them still fail with ErrNoToken.
+		src = StaticCredentialSource{}
 	}
-	if _, err := src.Credential(context.Background()); err != nil {
-		return nil, err
-	}
+	sources := FallbackCredentialSource{src}
 	ua := opts.UserAgent
 	if ua == "" {
 		ua = defaultUserAgent
@@ -141,8 +142,14 @@ func New(opts Options) (*Tracker, error) {
 		}
 		if cs, ok := opts.HostCredentials[h]; ok && cs != nil {
 			he.creds = cs
+			sources = append(sources, cs)
 		}
 		hosts[h] = he
+	}
+	// Presence-check only configured, allowed sources; retain the individual
+	// sources above so request-time resolution never borrows another site's token.
+	if _, err := sources.Credential(context.Background()); err != nil {
+		return nil, err
 	}
 
 	t := &Tracker{http: opts.HTTPClient, userAgent: ua, hosts: hosts}
