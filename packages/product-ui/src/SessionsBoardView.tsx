@@ -5,7 +5,9 @@ import {
 	startTransition,
 	useEffect,
 	useState,
+	type CSSProperties,
 	type HTMLAttributes,
+	type Key,
 	type ReactElement,
 	type ReactNode,
 } from "react";
@@ -125,19 +127,32 @@ export type BoardColumnLabels = {
 
 export type SessionsBoardGridViewProps<
 	TSession extends BoardSessionPresentation = BoardSessionPresentation,
+	TItem = unknown,
 > = {
 	columns: KanbanColumnView[];
 	labels: BoardColumnLabels;
+	leadingColumn?: {
+		label: string;
+		items: readonly TItem[];
+		renderItem: (item: TItem) => ReactNode;
+		getItemKey?: (item: TItem) => Key;
+		swatchColor?: string;
+		headerAction?: ReactNode;
+		notice?: ReactNode;
+		emptyState?: ReactNode;
+	};
 	renderSessionCard: (session: TSession) => ReactNode;
 	sessions: TSession[];
 };
 
-export function SessionsBoardGridView<TSession extends BoardSessionPresentation>({
+export function SessionsBoardGridView<TSession extends BoardSessionPresentation, TItem = unknown>({
 	columns,
 	labels,
+	leadingColumn,
 	renderSessionCard,
 	sessions,
-}: SessionsBoardGridViewProps<TSession>) {
+}: SessionsBoardGridViewProps<TSession, TItem>) {
+	const columnCount = columns.length + (leadingColumn ? 1 : 0);
 	const byColumn = new Map<KanbanColumn, TSession[]>();
 	for (const session of sessions) {
 		const column = toKanbanColumn(session.kanbanColumn, session.status);
@@ -151,11 +166,43 @@ export function SessionsBoardGridView<TSession extends BoardSessionPresentation>
 			className="board-horizontal-scrollbar h-full overflow-x-auto overflow-y-hidden"
 			data-testid="board-horizontal-scroll"
 		>
-			<div className="relative grid h-full min-w-[64rem] grid-cols-4 divide-x divide-border-strong xl:min-w-0">
+			<div
+				className="relative grid h-full min-w-[var(--board-min-width)] divide-x divide-border-strong xl:min-w-0"
+				data-testid="board-grid"
+				style={{
+					gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+					"--board-min-width": `${columnCount * 16}rem`,
+				} as CSSProperties}
+			>
 				<div
 					aria-hidden="true"
 					className="pointer-events-none absolute inset-x-0 top-12 z-10 border-t border-border-strong"
 				/>
+				{leadingColumn && (
+					<section
+						aria-label={leadingColumn.label}
+						className="flex min-w-0 flex-col overflow-hidden"
+						data-testid="board-leading-column"
+					>
+						<div className="flex h-12 shrink-0 items-center gap-2.5 px-4">
+							{leadingColumn.swatchColor && (
+								<span className="size-[var(--size-swatch)] rounded-full" style={{ backgroundColor: leadingColumn.swatchColor }} />
+							)}
+							<span className="text-xs font-medium">{leadingColumn.label}</span>
+							<span className="ml-auto tabular-nums text-xs leading-none text-passive">{leadingColumn.items.length}</span>
+							{leadingColumn.headerAction}
+						</div>
+						<div className="board-scrollbar min-h-0 flex-1 overflow-y-auto pl-3 pr-2 pb-3 pt-3">
+							<div className="flex min-h-full flex-col gap-2.5">
+								{leadingColumn.notice}
+								{leadingColumn.items.map((item, index) => (
+									<Fragment key={leadingColumn.getItemKey?.(item) ?? index}>{leadingColumn.renderItem(item)}</Fragment>
+								))}
+								{leadingColumn.items.length === 0 && leadingColumn.emptyState}
+							</div>
+						</div>
+					</section>
+				)}
 				{columns.map((column) => (
 					<BoardColumnView
 						column={column}

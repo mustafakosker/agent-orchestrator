@@ -81,6 +81,61 @@ describe("SessionsBoardView", () => {
 		lastArchiveMotionTransition.current = undefined;
 	});
 
+	it("adds an independent leading lane with five-column sizing and preserves session placement", () => {
+		const columns = boardKanbanColumnOrder.map((column) => getKanbanColumnView(column));
+		const sessions = [baseSession, { ...baseSession, id: "newer", title: "newer", updatedAt: "2026-08-10T10:00:00Z" }];
+		const props = {
+			columns, sessions, labels: columnLabels,
+			renderSessionCard: (session: BoardSessionPresentation) => <div data-testid="board-session-card" data-session-id={session.id}>{session.title}</div>,
+		};
+		const { rerender } = render(<SessionsBoardGridView {...props} />);
+		const grid = screen.getByTestId("board-grid");
+		expect(grid).toHaveStyle({ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" });
+		expect(grid).toHaveClass("min-w-[var(--board-min-width)]", "xl:min-w-0");
+		expect(grid.style.getPropertyValue("--board-min-width")).toBe("64rem");
+		expect(screen.getAllByTestId("board-column")).toHaveLength(4);
+		expect(screen.queryByTestId("board-leading-column")).not.toBeInTheDocument();
+		const originalOrder = within(screen.getByRole("region", { name: "Building sessions" })).getAllByTestId("board-session-card").map((card) => card.dataset.sessionId);
+		const refresh = vi.fn();
+		const leadingColumn = {
+			label: "Jira backlog", items: [{ key: "ACME-1", title: "Ready ticket" }],
+			getItemKey: (item: { key: string; title: string }) => item.key,
+			renderItem: (item: { key: string; title: string }) => <div data-testid="jira-ticket-card">{item.title}</div>,
+			swatchColor: "blue", headerAction: <button onClick={refresh}>Refresh tickets</button>,
+		};
+		rerender(<SessionsBoardGridView {...props} leadingColumn={leadingColumn} />);
+		expect(grid).toHaveStyle({ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" });
+		expect(grid.style.getPropertyValue("--board-min-width")).toBe("80rem");
+		expect(grid.querySelectorAll(":scope > section")).toHaveLength(5);
+		const leading = screen.getByRole("region", { name: "Jira backlog" });
+		expect(grid.querySelector("section")).toBe(leading);
+		expect(within(leading).getByTestId("jira-ticket-card")).toHaveTextContent("Ready ticket");
+		expect(within(leading).getByText("1")).toBeInTheDocument();
+		expect(within(leading).queryByTestId("board-session-card")).not.toBeInTheDocument();
+		for (const lane of screen.getAllByTestId("board-column")) {
+			expect(within(lane).queryByTestId("jira-ticket-card")).not.toBeInTheDocument();
+		}
+		expect(within(screen.getByRole("region", { name: "Building sessions" })).getAllByTestId("board-session-card").map((card) => card.dataset.sessionId)).toEqual(originalOrder);
+		fireEvent.click(within(leading).getByRole("button", { name: "Refresh tickets" }));
+		expect(refresh).toHaveBeenCalledTimes(1);
+		// Count derives from the supplied session columns, not a hardcoded 4/5 switch.
+		rerender(<SessionsBoardGridView {...props} columns={columns.slice(0, 2)} leadingColumn={leadingColumn} />);
+		expect(grid).toHaveStyle({ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" });
+		expect(grid.style.getPropertyValue("--board-min-width")).toBe("48rem");
+	});
+
+	it("shows caller-provided notices and empty content without fabricating sessions", () => {
+		render(<SessionsBoardGridView columns={boardKanbanColumnOrder.map((column) => getKanbanColumnView(column))}
+			labels={columnLabels} sessions={[]} renderSessionCard={() => <div data-testid="board-session-card" />}
+			leadingColumn={{ label: "Tickets", items: [], renderItem: () => <div data-testid="jira-ticket-card" />,
+				notice: <p>Provider unavailable</p>, emptyState: <p>No tickets loaded</p> }} />);
+		const lane = screen.getByTestId("board-leading-column");
+		expect(within(lane).getByText("Provider unavailable")).toBeInTheDocument();
+		expect(within(lane).getByText("No tickets loaded")).toBeInTheDocument();
+		expect(screen.queryByTestId("jira-ticket-card")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("board-session-card")).not.toBeInTheDocument();
+	});
+
 	it.each(["checking", "unavailable"] as const)("withholds provisional activity while %s", (statusReadiness) => {
 		render(<SessionCardView externalLink={ExternalLink}
 			labels={{ formatTime: () => "now", intakeIssue: (id) => id, pr: progressLabels, updatedAt: (at) => at }}
