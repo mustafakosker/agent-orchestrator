@@ -572,6 +572,19 @@ func TestManager_SetConfigRejectsScratchGitOnlyFields(t *testing.T) {
 	}})
 	wantCode(t, err, "INVALID_PROJECT_CONFIG")
 
+	// A scratch project has no repository and no tracker, so the read-only Jira
+	// backlog lane is rejected for the same reason intake is.
+	_, err = m.SetConfig(ctx, "scratch", project.SetConfigInput{Config: domain.ProjectConfig{
+		TrackerBacklog: domain.TrackerBacklogConfig{
+			Enabled:    true,
+			Provider:   domain.TrackerProviderJira,
+			Site:       "acme.atlassian.net",
+			ProjectKey: "ACME",
+			Statuses:   []string{"Ready"},
+		},
+	}})
+	wantCode(t, err, "INVALID_PROJECT_CONFIG")
+
 	proj, err := m.SetConfig(ctx, "scratch", project.SetConfigInput{Config: domain.ProjectConfig{
 		AgentConfig: domain.AgentConfig{Model: "gpt-5"},
 		Worker:      domain.RoleOverride{Harness: domain.HarnessCodex},

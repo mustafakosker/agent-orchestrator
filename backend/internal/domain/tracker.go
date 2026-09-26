@@ -9,24 +9,28 @@ import (
 // TrackerProvider identifies an issue-tracker provider implementation.
 type TrackerProvider string
 
-// TrackerProviderGitHub and TrackerProviderGitLab are the supported issue-tracker
-// providers.
+// TrackerProviderGitHub, TrackerProviderGitLab, and TrackerProviderJira are the
+// supported issue-tracker providers.
 const (
 	TrackerProviderGitHub TrackerProvider = "github"
 	TrackerProviderGitLab TrackerProvider = "gitlab"
+	TrackerProviderJira   TrackerProvider = "jira"
 )
 
 // TrackerID identifies one issue. Native is the provider's own canonical form
-// ("owner/repo#123" for GitHub, "group/project#123" for GitLab) and is
-// parsed by the adapter.
+// ("owner/repo#123" for GitHub, "group/project#123" for GitLab, "ACME-123" for
+// Jira) and is parsed by the adapter.
 //
-// Host is the GitLab instance host (e.g. "gitlab.example.com"). The zero value
-// "" means the default host gitlab.com, so all existing call sites that
-// construct TrackerID without setting Host continue to work unchanged.
+// Host is the GitLab instance host (e.g. "gitlab.example.com") or the Jira site
+// (e.g. "acme.atlassian.net"). For GitLab the zero value "" means the default
+// host gitlab.com, so all existing call sites that construct TrackerID without
+// setting Host continue to work unchanged. Jira has no default site: the Jira
+// adapter rejects an empty Host.
 type TrackerID struct {
 	Provider TrackerProvider `json:"provider"`
 	Native   string          `json:"native"`
-	// Host is the GitLab instance host; "" means gitlab.com.
+	// Host is the GitLab instance host ("" means gitlab.com) or the Jira site
+	// (required).
 	Host string `json:"host,omitempty"`
 }
 
@@ -58,15 +62,19 @@ type Issue struct {
 
 // TrackerRepo identifies a repository for cross-issue queries like Tracker.List.
 // Native is the provider's canonical owner/project form, e.g. "owner/repo"
-// for GitHub or "group/project" for GitLab.
+// for GitHub or "group/project" for GitLab. For Jira it is not a repository
+// path at all: it is the Jira PROJECT KEY (e.g. "ACME").
 //
-// Host is the GitLab instance host (e.g. "gitlab.example.com"). The zero value
-// "" means the default host gitlab.com, so all existing call sites that
-// construct TrackerRepo without setting Host continue to work unchanged.
+// Host is the GitLab instance host (e.g. "gitlab.example.com") or the Jira site
+// (e.g. "acme.atlassian.net"). For GitLab the zero value "" means the default
+// host gitlab.com, so all existing call sites that construct TrackerRepo
+// without setting Host continue to work unchanged. Jira has no default site:
+// the Jira adapter rejects an empty Host.
 type TrackerRepo struct {
 	Provider TrackerProvider `json:"provider"`
 	Native   string          `json:"native"`
-	// Host is the GitLab instance host; "" means gitlab.com.
+	// Host is the GitLab instance host ("" means gitlab.com) or the Jira site
+	// (required).
 	Host string `json:"host,omitempty"`
 }
 
@@ -93,7 +101,13 @@ type ListFilter struct {
 	State    ListStateFilter `json:"state,omitempty"`
 	Labels   []string        `json:"labels,omitempty"`
 	Assignee string          `json:"assignee,omitempty"`
-	Limit    int             `json:"limit,omitempty"`
+	// Statuses narrows Tracker.List to the provider's own workflow status
+	// names. Like Assignee, provider-specific values are passed through
+	// unchanged — these are the provider's status strings (e.g. Jira's
+	// "Ready", "In Review"), not NormalizedIssueState values. Adapters that
+	// have no equivalent concept ignore it.
+	Statuses []string `json:"statuses,omitempty"`
+	Limit    int      `json:"limit,omitempty"`
 }
 
 // TrackerIntakeConfig controls issue-driven worker spawning for a project.
@@ -166,6 +180,77 @@ func (c TrackerIntakeConfig) Validate() error {
 	}
 	if strings.TrimSpace(c.Assignee) == "" {
 		return fmt.Errorf("trackerIntake: assignee is required when enabled")
+	}
+	return nil
+}
+
+// TrackerBacklogConfig controls the read-only backlog lane on the sessions
+// board. It is display-only: eligible tickets are listed and linked, and
+// nothing else.
+//
+// It is deliberately NOT part of TrackerIntakeConfig, whose Enabled flag arms
+// issue-driven worker spawning — see
+// backend/internal/observe/trackerintake/observer.go, which starts one worker
+// session per eligible issue. Enabling display must never be able to enable
+// spawning, so the two live in independent structs with independent Enabled
+// flags rather than sharing one.
+type TrackerBacklogConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
+	// Provider must be set explicitly when Enabled: unlike TrackerIntakeConfig
+	// there is nothing to infer from, because InferTrackerProvider maps every
+	// non-GitHub host to gitlab and a Jira site never appears in a git origin.
+	Provider TrackerProvider `json:"provider,omitempty" enum:"jira"`
+	// Site is the Jira site (e.g. "acme.atlassian.net"). There is no default.
+	Site string `json:"site,omitempty"`
+	// ProjectKey is the Jira project key (e.g. "ACME"), not a repo path.
+	ProjectKey string `json:"projectKey,omitempty"`
+	// Statuses are the provider's own workflow status names that make a ticket
+	// eligible for the lane (e.g. "Ready"). At least one is required when
+	// Enabled: an empty list would scope the query to the whole Jira project.
+	Statuses []string `json:"statuses,omitempty"`
+}
+
+// WithDefaults leaves the zero value untouched. Unlike TrackerIntakeConfig
+// there is no deferred inference either — an absent provider cannot be derived
+// from the project's repo origin URL, so Validate requires it explicitly.
+func (c TrackerBacklogConfig) WithDefaults() TrackerBacklogConfig {
+	return c
+}
+
+// Validate rejects an enabled backlog config that cannot produce a scoped
+// query. Site and ProjectKey are required explicitly because no derivation
+// exists, and Statuses must be non-empty because a project-key-only query
+// would return every ticket in the Jira project.
+func (c TrackerBacklogConfig) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+	if c.Provider != TrackerProviderJira {
+		return fmt.Errorf("trackerBacklog.provider: must be %q when enabled, got %q", TrackerProviderJira, c.Provider)
+	}
+	if err := validateNoWhitespaceField("trackerBacklog.site", c.Site); err != nil {
+		return err
+	}
+	if strings.TrimSpace(c.Site) == "" {
+		return fmt.Errorf("trackerBacklog.site: is required when enabled")
+	}
+	if err := validateNoWhitespaceField("trackerBacklog.projectKey", c.ProjectKey); err != nil {
+		return err
+	}
+	if strings.TrimSpace(c.ProjectKey) == "" {
+		return fmt.Errorf("trackerBacklog.projectKey: is required when enabled")
+	}
+	if len(c.Statuses) == 0 {
+		return fmt.Errorf("trackerBacklog.statuses: at least one status is required when enabled")
+	}
+	for i, s := range c.Statuses {
+		name := fmt.Sprintf("trackerBacklog.statuses[%d]", i)
+		if err := validateNoWhitespaceField(name, s); err != nil {
+			return err
+		}
+		if s == "" {
+			return fmt.Errorf("%s: must not be blank", name)
+		}
 	}
 	return nil
 }

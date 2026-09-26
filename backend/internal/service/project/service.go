@@ -788,6 +788,9 @@ func validateScratchProjectConfig(cfg domain.ProjectConfig) error {
 	if cfg.TrackerIntake.Enabled {
 		return errors.New("scratch projects do not support tracker intake")
 	}
+	if cfg.TrackerBacklog.Enabled {
+		return errors.New("scratch projects do not support a tracker backlog lane")
+	}
 	if len(cfg.Reviewers) > 0 {
 		return errors.New("scratch projects do not support reviewers")
 	}

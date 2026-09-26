@@ -58,6 +58,11 @@ type ProjectConfig struct {
 	// read-only toward the tracker in v1: matching issues spawn sessions, but the
 	// tracker is not commented on or transitioned.
 	TrackerIntake TrackerIntakeConfig `json:"trackerIntake,omitempty"`
+	// TrackerBacklog controls the read-only Jira backlog lane on the sessions
+	// board. It is display-only and is deliberately a sibling of TrackerIntake
+	// rather than a field inside it: TrackerIntake.Enabled arms worker
+	// spawning, and enabling display must never be able to arm that.
+	TrackerBacklog TrackerBacklogConfig `json:"trackerBacklog,omitempty"`
 
 	// ContainerReap controls whether AO reaps a worker session's ao.session-
 	// labeled Docker containers on terminal state / kill. Enabled by default;
@@ -150,6 +155,7 @@ func (c ProjectConfig) WithDefaults() ProjectConfig {
 		c.DefaultBranch = def.DefaultBranch
 	}
 	c.TrackerIntake = c.TrackerIntake.WithDefaults()
+	c.TrackerBacklog = c.TrackerBacklog.WithDefaults()
 	return c
 }
 
@@ -209,6 +215,9 @@ func (c ProjectConfig) Validate() error {
 		}
 	}
 	if err := c.TrackerIntake.Validate(); err != nil {
+		return err
+	}
+	if err := c.TrackerBacklog.Validate(); err != nil {
 		return err
 	}
 	return nil
