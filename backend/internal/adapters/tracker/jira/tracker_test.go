@@ -191,6 +191,22 @@ func TestListJQLHonorsEveryNarrowingFilter(t *testing.T) {
 	}
 }
 
+func TestListJQLPreservesWhitespaceAssignee(t *testing.T) {
+	var jql atomic.Value
+	tr := newTracker(t, onePageIssues(&jql, ""), nil)
+	_, err := tr.List(context.Background(), jiraRepo(), domain.ListFilter{
+		State: domain.ListOpen, Assignee: "   ",
+	})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	got, _ := jql.Load().(string)
+	want := `project = "ACME" AND statusCategory != Done AND assignee = "   "`
+	if got != want {
+		t.Fatalf("jql = %q, want %q (the assignee must not be dropped)", got, want)
+	}
+}
+
 func TestListJQLCombinesAllConjuncts(t *testing.T) {
 	var jql atomic.Value
 	tr := newTracker(t, onePageIssues(&jql, ""), nil)

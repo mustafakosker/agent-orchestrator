@@ -328,7 +328,7 @@ func buildJQL(projectKey string, f domain.ListFilter) (string, error) {
 		conjuncts = append(conjuncts, "labels IN ("+quoteJQLList(f.Labels)+")")
 		narrowed = true
 	}
-	if assignee := strings.TrimSpace(f.Assignee); assignee != "" {
+	if assignee := f.Assignee; assignee != "" {
 		// "*" is the provider-agnostic "assigned to anyone" that
 		// TrackerIntakeConfig.Assignee documents as passed through unchanged.
 		// Jira has no "*"; its equivalent is IS NOT EMPTY.
