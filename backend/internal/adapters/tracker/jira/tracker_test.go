@@ -220,16 +220,9 @@ func TestListJQLCombinesAllConjuncts(t *testing.T) {
 		t.Fatalf("List: %v", err)
 	}
 	got, _ := jql.Load().(string)
-	for _, want := range []string{
-		`project = "ACME"`,
-		`status IN ("Ready")`,
-		`statusCategory != Done`,
-		`labels IN ("backend")`,
-		`assignee = "alice"`,
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("jql = %q, want it to contain %q", got, want)
-		}
+	want := `project = "ACME" AND status IN ("Ready") AND statusCategory != Done AND labels IN ("backend") AND assignee = "alice"`
+	if got != want {
+		t.Fatalf("jql = %q, want %q", got, want)
 	}
 }
 
@@ -736,10 +729,11 @@ func TestErrorMapping(t *testing.T) {
 			want:    trackerjira.ErrRateLimited,
 		},
 		{
-			name:   "500 server error",
-			status: http.StatusInternalServerError,
-			body:   `{"errorMessages":["boom"]}`,
-			want:   nil,
+			name:    "500 server error",
+			status:  http.StatusInternalServerError,
+			body:    `{"errorMessages":["boom"]}`,
+			want:    nil,
+			wantMsg: "500 boom",
 		},
 	}
 	for _, tt := range tests {
@@ -760,6 +754,9 @@ func TestErrorMapping(t *testing.T) {
 			}
 			if tt.want != nil && !errors.Is(err, tt.want) {
 				t.Fatalf("List err = %v, want errors.Is %v", err, tt.want)
+			}
+			if tt.want == nil && errors.Unwrap(err) != nil {
+				t.Fatalf("List err = %v, want a plain status error without a sentinel", err)
 			}
 			if tt.wantMsg != "" && !strings.Contains(err.Error(), tt.wantMsg) {
 				t.Fatalf("List err = %v, want it to carry Jira's message %q", err, tt.wantMsg)
