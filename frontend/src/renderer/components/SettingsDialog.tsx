@@ -1,4 +1,4 @@
-import { Bot, GitBranch, Inbox, MonitorCog, TriangleAlert, X, type LucideIcon } from "lucide-react";
+import { ListTodo, Bot, GitBranch, Inbox, MonitorCog, TriangleAlert, X, type LucideIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useEffect, useRef, useState } from "react";
@@ -64,6 +64,7 @@ function SettingsDialogLayer({ settingsModal }: { settingsModal: SettingsModal }
 		{ id: "agents", label: t("settings.project.agents"), icon: Bot },
 		{ id: "workflow", label: t("settings.project.workflow"), icon: GitBranch },
 		{ id: "intake", label: t("settings.project.intake"), icon: Inbox },
+		{ id: "backlog", label: t("settings.project.backlog"), icon: ListTodo },
 	];
 
 	const isProjectSettings = displaySettings?.scope === "project";

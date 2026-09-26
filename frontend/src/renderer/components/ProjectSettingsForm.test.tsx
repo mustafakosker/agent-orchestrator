@@ -211,6 +211,91 @@ beforeEach(() => {
 });
 
 describe("ProjectSettingsForm", () => {
+	function backlogProject(backlog?: Record<string, unknown>, kind = "single_repo") {
+		return {
+			id: "proj-1", name: "Project One", kind, path: "/repo/project-one", repo: "git@github.com:acme/project-one.git", defaultBranch: "main",
+			config: { worker: { agent: "codex" }, orchestrator: { agent: "claude-code" }, trackerBacklog: backlog },
+		};
+	}
+	const readyBacklog = { enabled: true, provider: "jira", site: "acme.atlassian.net", projectKey: "ACME", statuses: ["Ready", "In Review"] };
+
+	it("saves backlog scope separately from intake with split, trimmed statuses", async () => {
+		mockProject(backlogProject());
+		renderSettings("proj-1", [], "backlog");
+		await userEvent.click(await screen.findByRole("switch", { name: "Show Jira backlog" }));
+		expect(screen.queryByLabelText("Enable issue intake")).not.toBeInTheDocument();
+		for (const [label, value] of [["Site", " acme.atlassian.net "], ["Project key", " ACME "], ["Statuses", "Ready, In Review, , "]]) {
+			fireEvent.change(await beginEdit(label), { target: { value } });
+		}
+		submitSettings();
+		await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+		expect(putMock.mock.calls[0][0]).toBe("/api/v1/projects/{id}");
+		expect(putMock.mock.calls[0][1].body.config.trackerBacklog).toEqual(readyBacklog);
+		expect(putMock.mock.calls[0][1].body.config.trackerIntake).toBeUndefined();
+	});
+
+	it("round-trips backlog statuses and preserves unmodeled fields", async () => {
+		mockProject(backlogProject({ ...readyBacklog, futureOption: "keep" }));
+		renderSettings("proj-1", [], "backlog");
+		expect(await screen.findByRole("button", { name: "Edit Statuses" })).toHaveTextContent("Ready, In Review");
+		submitSettings();
+		await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+		expect(putMock.mock.calls[0][1].body.config.trackerBacklog).toEqual({ ...readyBacklog, futureOption: "keep" });
+	});
+
+	it("omits a disabled blank backlog config", async () => {
+		mockProject(backlogProject({ enabled: false, provider: "jira", site: "", projectKey: "", statuses: [] }));
+		renderSettings("proj-1", [], "backlog");
+		await screen.findByRole("switch", { name: "Show Jira backlog" });
+		submitSettings();
+		await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+		expect(putMock.mock.calls[0][1].body.config.trackerBacklog).toBeUndefined();
+	});
+
+	it.each([
+		["site", "", "A Jira site is required."],
+		["projectKey", "", "A Jira project key is required."],
+		["statuses", [], "At least one Jira status is required."],
+	])("blocks save with incomplete backlog %s", async (field, value, message) => {
+		mockProject(backlogProject({ ...readyBacklog, [field as string]: value }));
+		renderSettings("proj-1", [], "backlog");
+		await screen.findByRole("switch", { name: "Show Jira backlog" });
+		submitSettings();
+		expect(await screen.findAllByText(message as string)).not.toHaveLength(0);
+		expect(putMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps backlog controls out of the intake section", async () => {
+		mockProject(backlogProject(readyBacklog));
+		renderSettings("proj-1", [], "intake");
+		await screen.findByLabelText("Enable issue intake");
+		expect(screen.queryByRole("switch", { name: "Show Jira backlog" })).not.toBeInTheDocument();
+	});
+
+	it("shows missing Jira credentials without blocking a valid settings save", async () => {
+		mockProject(backlogProject(readyBacklog));
+		const original = getMock.getMockImplementation()!;
+		getMock.mockImplementation((path, ...args) => path === "/api/v1/projects/{id}/backlog"
+			? Promise.resolve({ data: { state: "not_configured", reason: "credentials_missing", items: [], stale: false, fetchedAt: null } })
+			: original(path, ...args));
+		renderSettings("proj-1", [], "backlog");
+		expect(await screen.findByText(/AO_JIRA_EMAIL/)).toHaveTextContent("AO_JIRA_API_TOKEN");
+		expect(screen.getByRole("link", { name: "Jira credential setup" })).toBeInTheDocument();
+		expect(screen.queryByLabelText(/API token|Email|PAT/)).not.toBeInTheDocument();
+		submitSettings();
+		await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+	});
+
+	it("strips backlog config and hides its controls for scratch projects", async () => {
+		mockProject(backlogProject({ enabled: true }, "scratch"));
+		renderSettings("proj-1", [], "backlog");
+		await screen.findByText("Jira backlog is not available for scratch projects.");
+		expect(screen.queryByRole("switch", { name: "Show Jira backlog" })).not.toBeInTheDocument();
+		submitSettings();
+		await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+		expect(putMock.mock.calls[0][1].body.config).not.toHaveProperty("trackerBacklog");
+	});
+
 	it.each([
 		{ field: "Default worker agent", selectedAgent: "codex", selectedLabel: "Codex" },
 		{ field: "Default orchestrator agent", selectedAgent: "claude-code", selectedLabel: "Claude Code" },
