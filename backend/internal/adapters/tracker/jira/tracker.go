@@ -218,10 +218,14 @@ func issueFromJira(host string, raw jiraIssue) domain.Issue {
 			Native:   raw.Key,
 			Host:     host,
 		},
-		Title:  raw.Fields.Summary,
-		State:  mapStatusCategory(raw.Fields.Status.StatusCategory.Key),
-		URL:    "https://" + host + "/browse/" + raw.Key,
-		Labels: raw.Fields.Labels,
+		Title: raw.Fields.Summary,
+		State: mapStatusCategory(raw.Fields.Status.StatusCategory.Key),
+		// Jira's own workflow status name. The lane renders this rather than
+		// the normalized State, which collapses every pre-work status onto
+		// IssueOpen and so cannot show the distinction the lane exists for.
+		ProviderState: raw.Fields.Status.Name,
+		URL:           "https://" + host + "/browse/" + raw.Key,
+		Labels:        raw.Fields.Labels,
 	}
 	if a := raw.Fields.Assignee; a != nil {
 		if name := firstNonEmpty(a.DisplayName, a.EmailAddress, a.AccountID); name != "" {

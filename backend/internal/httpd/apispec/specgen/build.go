@@ -153,6 +153,8 @@ func schemaName(_ reflect.Type, defaultName string) string {
 // the drift test fails until the spec is regenerated, which flags the gap.
 var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names include reset-credit contracts; no credential value is stored here.
 	"ControllersSettingsResponse":                          "SettingsResponse",
+	"ControllersBacklogResponse":                           "BacklogResponse",
+	"ControllersBacklogItem":                               "BacklogItem",
 	"ControllersDesktopWorkspaceLocationResponse":          "DesktopWorkspaceLocationResponse",
 	"ControllersUpdateSessionInterfaceRequest":             "UpdateSessionInterfaceRequest",
 	"ControllersConversationSnapshotResponse":              "ConversationSnapshotResponse",
@@ -1929,6 +1931,19 @@ func projectOperations() []operation {
 			pathParams: []any{controllers.ProjectIDParam{}},
 			resps: []respUnit{
 				{http.StatusOK, controllers.GetProjectResponse{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodGet, path: "/api/v1/projects/{id}/backlog", id: "getProjectBacklog", tag: "projects",
+			summary:    "List the project's eligible tracker backlog tickets (display-only)",
+			pathParams: []any{controllers.ProjectIDParam{}},
+			resps: []respUnit{
+				// A provider failure degrades the lane instead of failing the
+				// request, so there is no 5xx for "Jira is down": the outcome is
+				// reported in the 200 body's state/reason.
+				{http.StatusOK, controllers.BacklogResponse{}},
 				{http.StatusNotFound, envelope.APIError{}},
 				{http.StatusInternalServerError, envelope.APIError{}},
 			},

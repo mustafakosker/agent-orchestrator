@@ -51,13 +51,22 @@ const (
 // Issue is the minimum projection every tracker can produce. Provider-specific
 // metadata stays inside provider-specific code paths.
 type Issue struct {
-	ID        TrackerID            `json:"id"`
-	Title     string               `json:"title"`
-	Body      string               `json:"body"`
-	State     NormalizedIssueState `json:"state"`
-	URL       string               `json:"url"`
-	Labels    []string             `json:"labels,omitempty"`
-	Assignees []string             `json:"assignees,omitempty"`
+	ID    TrackerID            `json:"id"`
+	Title string               `json:"title"`
+	Body  string               `json:"body"`
+	State NormalizedIssueState `json:"state"`
+	// ProviderState is the provider's own status string, carried for DISPLAY
+	// only — never for logic, which belongs on the normalized State.
+	//
+	// It exists because normalization is deliberately lossy and some surfaces
+	// need the unreduced value: Jira's three statusCategory values collapse
+	// "Ready", "Blocked", and "Selected for Development" all onto IssueOpen, so
+	// a board lane configured by workflow status has nothing to render from
+	// State alone. Empty when the provider supplies no distinct status string.
+	ProviderState string   `json:"providerState,omitempty"`
+	URL           string   `json:"url"`
+	Labels        []string `json:"labels,omitempty"`
+	Assignees     []string `json:"assignees,omitempty"`
 }
 
 // TrackerRepo identifies a repository for cross-issue queries like Tracker.List.

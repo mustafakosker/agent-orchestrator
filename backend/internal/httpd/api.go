@@ -26,6 +26,7 @@ type APIDeps struct {
 	Agents             controllers.AgentCatalog
 	CodexAccounts      controllers.CodexAccountService
 	Projects           projectsvc.Manager
+	Backlog            controllers.BacklogManager
 	Sessions           controllers.SessionService
 	DesktopWorkspaces  controllers.DesktopWorkspaceService
 	Activity           controllers.ActivityRecorder
@@ -157,7 +158,8 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 		},
 		codexAccounts: &controllers.CodexAccountsController{Svc: deps.CodexAccounts},
 		projects: &controllers.ProjectsController{
-			Mgr: deps.Projects,
+			Mgr:     deps.Projects,
+			Backlog: deps.Backlog,
 		},
 		sessions: &controllers.SessionsController{
 			Svc:           deps.Sessions,

@@ -918,3 +918,44 @@ func TestListJQLSurvivesURLEncoding(t *testing.T) {
 		t.Fatalf("decoded jql = %q, want the quoted status intact", vals.Get("jql"))
 	}
 }
+
+// The lane renders Jira's own workflow status name, so the adapter must carry
+// it. The normalized State is lossy on purpose and cannot stand in for it.
+func TestListCarriesJiraStatusName(t *testing.T) {
+	var jql atomic.Value
+	tr := newTracker(t, onePageIssues(&jql, strings.Join([]string{
+		issueJSON("ACME-1", "One", "Selected for Development", "new", "Alice"),
+		issueJSON("ACME-2", "Two", "Blocked", "new", "Bob"),
+	}, ",")), nil)
+
+	out, err := tr.List(context.Background(), jiraRepo(), domain.ListFilter{Statuses: []string{"Ready"}})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if out[0].ProviderState != "Selected for Development" {
+		t.Fatalf("ProviderState = %q, want Jira's own status name", out[0].ProviderState)
+	}
+	if out[1].ProviderState != "Blocked" {
+		t.Fatalf("ProviderState = %q, want Jira's own status name", out[1].ProviderState)
+	}
+	// Both collapse to IssueOpen: this is exactly why ProviderState exists.
+	if out[0].State != domain.IssueOpen || out[1].State != domain.IssueOpen {
+		t.Fatalf("states = %q/%q, want both normalized to open", out[0].State, out[1].State)
+	}
+}
+
+func TestGetCarriesJiraStatusName(t *testing.T) {
+	tr := newTracker(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, issueJSON("ACME-7", "Seven", "In Review", "indeterminate", "Alice"))
+	}, nil)
+
+	got, err := tr.Get(context.Background(), domain.TrackerID{
+		Provider: domain.TrackerProviderJira, Native: "ACME-7", Host: testSite,
+	})
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.ProviderState != "In Review" {
+		t.Fatalf("ProviderState = %q, want \"In Review\"", got.ProviderState)
+	}
+}

@@ -217,3 +217,33 @@ func TestProjectConfigTrackerBacklogJSONKey(t *testing.T) {
 		t.Fatalf("marshal = %s, want trackerIntake left empty by a backlog-only config", raw)
 	}
 }
+
+// ProviderState carries the provider's own status string for display. The
+// normalized State cannot serve that purpose: Jira's three statusCategory
+// values collapse "Ready", "Blocked", and "Selected for Development" all onto
+// IssueOpen, so a lane configured by workflow status has nothing to render.
+func TestIssueProviderStateIsSeparateFromNormalizedState(t *testing.T) {
+	iss := Issue{State: IssueOpen, ProviderState: "Selected for Development"}
+	if iss.State != IssueOpen {
+		t.Fatalf("State = %q, want the normalized value", iss.State)
+	}
+	if iss.ProviderState != "Selected for Development" {
+		t.Fatalf("ProviderState = %q, want the provider's own status string", iss.ProviderState)
+	}
+
+	raw, err := json.Marshal(iss)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"providerState":"Selected for Development"`) {
+		t.Fatalf("marshal = %s, want providerState carried", raw)
+	}
+	// Absent for providers that do not supply one.
+	raw, err = json.Marshal(Issue{State: IssueOpen})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(raw), "providerState") {
+		t.Fatalf("marshal = %s, want providerState omitted when unset", raw)
+	}
+}

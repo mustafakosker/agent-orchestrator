@@ -2368,6 +2368,39 @@ paths:
       summary: Atomically replace a project's display name and config
       tags:
       - projects
+  /api/v1/projects/{id}/backlog:
+    get:
+      operationId: getProjectBacklog
+      parameters:
+      - description: Project identifier (registry key).
+        in: path
+        name: id
+        required: true
+        schema:
+          description: Project identifier (registry key).
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacklogResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+      summary: List the project's eligible tracker backlog tickets (display-only)
+      tags:
+      - projects
   /api/v1/projects/{id}/config:
     put:
       operationId: setProjectConfig
@@ -8430,6 +8463,74 @@ components:
       required:
       - data
       type: object
+    BacklogItem:
+      properties:
+        assignee:
+          description: Assignee display name; empty when unassigned.
+          type: string
+        key:
+          description: Provider-native issue key, e.g. ACME-123.
+          type: string
+        projectId:
+          description: AO project the ticket belongs to.
+          type: string
+        status:
+          description: The provider's own workflow status name.
+          type: string
+        title:
+          description: Issue summary.
+          type: string
+        url:
+          description: Link to the issue in the provider.
+          type: string
+      required:
+      - key
+      - title
+      - status
+      - url
+      - projectId
+      type: object
+    BacklogResponse:
+      properties:
+        fetchedAt:
+          description: When Items was fetched from the provider; null when never fetched.
+          format: date-time
+          type:
+          - "null"
+          - string
+        items:
+          description: Eligible tickets; always an array, never null.
+          items:
+            $ref: '#/components/schemas/BacklogItem'
+          type: array
+        message:
+          description: Provider message for an error state.
+          type: string
+        reason:
+          description: Cause discriminator within a non-ok state.
+          enum:
+          - config_absent
+          - credentials_missing
+          - auth_failed
+          - config_invalid
+          - unavailable
+          type: string
+        stale:
+          description: True when serving a retained entry after a failed refresh.
+          type: boolean
+        state:
+          description: Lane outcome.
+          enum:
+          - ok
+          - not_configured
+          - error
+          type: string
+      required:
+      - items
+      - fetchedAt
+      - stale
+      - state
+      type: object
     BrowserCommandRequest:
       properties:
         action:
@@ -10286,6 +10387,23 @@ components:
       - reviewId
       - harness
       type: object
+    DomainTrackerBacklogConfig:
+      properties:
+        enabled:
+          type: boolean
+        projectKey:
+          type: string
+        provider:
+          enum:
+          - jira
+          type: string
+        site:
+          type: string
+        statuses:
+          items:
+            type: string
+          type: array
+      type: object
     EditConversationMessageRequest:
       properties:
         clientMessageId:
@@ -11532,6 +11650,8 @@ components:
           items:
             type: string
           type: array
+        trackerBacklog:
+          $ref: '#/components/schemas/DomainTrackerBacklogConfig'
         trackerIntake:
           $ref: '#/components/schemas/TrackerIntakeConfig'
         worker:

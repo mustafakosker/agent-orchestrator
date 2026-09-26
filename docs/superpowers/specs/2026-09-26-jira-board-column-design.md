@@ -128,6 +128,12 @@ Jira's `fields.status.statusCategory.key` maps to `domain.NormalizedIssueState`:
 
 The normalized state is carried for port conformance. **The card renders Jira's own status name**, not the normalized state, because the normalized state would collapse the exact distinction the lane exists to show.
 
+**Amendment (2026-09-26, found during implementation).** As first written this section was impossible: `domain.Issue` had no field for a provider-native status string, so `ports.Tracker.List` — the adapter's only output — could not carry the status name the lane is required to render. `ports/tracker.go` compounded it by stating that "richer per-provider metadata belongs behind a separate port".
+
+Resolved by adding one additive field, `domain.Issue.ProviderState string`, carrying the provider's own status string **for display only, never to branch on**. The Jira adapter populates it from `fields.status.name`. `ports.Tracker`'s doc comment now records this as the single, bounded exception to its normalize-everything rule, so the boundary stays honestly documented rather than quietly violated.
+
+Rejected alternatives: a second port for one string (disproportionate, and `backlogsvc` would have to call two ports and join); rendering the normalized state (guts the feature — a lane configured for `Ready` would show every card as "Open"); and a Jira-only method outside the port (reintroduces the "callers cannot know what each sub-tracker supports" problem this spec argues against for filter handling).
+
 ### `Preflight`
 
 `Preflight` issues one `GET /rest/api/3/myself` and caches success for the lifetime of the tracker via `httpkit`'s preflight cache; failures are not cached, so a user who fixes credentials later is picked up without a daemon restart. This matches both existing adapters.
