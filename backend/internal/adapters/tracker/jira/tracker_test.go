@@ -861,9 +861,19 @@ func TestEnvCredentialSource(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:      "api token without email falls back to bearer",
-			env:       map[string]string{"AO_JIRA_API_TOKEN": "api"},
-			wantToken: "api",
+			name:    "api token without email is incomplete",
+			env:     map[string]string{"AO_JIRA_API_TOKEN": "api"},
+			wantErr: true,
+		},
+		{
+			name:    "api token with blank email is incomplete",
+			env:     map[string]string{"AO_JIRA_API_TOKEN": "api", "AO_JIRA_EMAIL": "   "},
+			wantErr: true,
+		},
+		{
+			name:      "pat remains usable with incomplete cloud credentials",
+			env:       map[string]string{"AO_JIRA_API_TOKEN": "api", "AO_JIRA_PAT": "pat"},
+			wantToken: "pat",
 		},
 	}
 	for _, tt := range tests {

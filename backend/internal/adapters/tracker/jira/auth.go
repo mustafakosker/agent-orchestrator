@@ -28,9 +28,10 @@ const (
 // with.
 //
 // Scheme is derived from the credential's own shape rather than from a host
-// heuristic: a credential carrying an email is Basic (Jira Cloud), one without
-// is Bearer (a Data Center PAT). Callers construct Credential with Email and
-// Token and let Scheme resolve itself.
+// heuristic: a credential carrying an email is Basic (Jira Cloud); a token-only
+// credential must represent a Data Center PAT. Sources must reject incomplete
+// Cloud email/API-token pairs rather than treating them as PATs. Callers
+// construct Credential with Email and Token and let Scheme resolve itself.
 type Credential struct {
 	Scheme SchemeKind
 	Email  string
@@ -103,6 +104,9 @@ type EnvCredentialSource struct{}
 func (EnvCredentialSource) Credential(context.Context) (Credential, error) {
 	if pat := strings.TrimSpace(os.Getenv(EnvPAT)); pat != "" {
 		return Credential{Scheme: SchemeBearer, Token: pat}, nil
+	}
+	if strings.TrimSpace(os.Getenv(EnvEmail)) == "" {
+		return Credential{}, ErrNoToken
 	}
 	return Credential{
 		Email: os.Getenv(EnvEmail),
