@@ -232,3 +232,10 @@ describe("SettingsDialog", () => {
 		await vi.waitFor(() => expect(useUiStore.getState().settingsModal).toBeNull());
 	});
 });
+
+it("honors a Backlog settings deep-link", async () => {
+	useUiStore.getState().openProjectSettings("p1", "backlog");
+	const client = new QueryClient();
+	render(<QueryClientProvider client={client}><SettingsDialog /></QueryClientProvider>);
+	expect(await screen.findByRole("button", { name: "Backlog" })).toHaveAttribute("aria-current", "page");
+});

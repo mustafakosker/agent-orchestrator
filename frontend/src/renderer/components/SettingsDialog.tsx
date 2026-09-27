@@ -106,7 +106,7 @@ function SettingsDialogLayer({ settingsModal }: { settingsModal: SettingsModal }
 			setActiveSection(globalSettingsItem(settingsModal.section ?? "general", { cloudEnabled }).id);
 		}
 		if (settingsModal?.scope === "project") {
-			setActiveProjectSection("general");
+			setActiveProjectSection(settingsModal.section ?? "general");
 			setProjectSaveState(initialProjectSaveState());
 		}
 	}, [cloudEnabled, settingsModal]);

@@ -26,6 +26,9 @@ import {
 import { useRestoreSession } from "../hooks/useRestoreSession";
 import { useTerminateSession } from "../hooks/useTerminateSession";
 import { useWorkspaceQuery, workspaceQueryKey } from "../hooks/useWorkspaceQuery";
+import { useProjectBacklog } from "../hooks/useProjectBacklog";
+import { JiraTicketCard } from "./JiraTicketCard";
+import { JiraBacklogBody } from "./JiraBacklogBody";
 import { NotificationCenter } from "./NotificationCenter";
 import { BoardWelcome, ProjectBoardEmpty } from "./BoardEmptyStates";
 import { TopbarButton, topbarProjectLabelClass } from "./TopbarButton";
@@ -126,6 +129,9 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 		hasProjects: workspaces.length > 0,
 		hasWorkerSessions: liveSessions.length > 0,
 	});
+	const backlogProjects = all.filter((project) => !["scratch", "cloud", "standalone"].includes(project.kind ?? ""));
+	const supportsBacklog = !projectId || backlogProjects.some((project) => project.id === projectId);
+	const backlog = useProjectBacklog(projectId, supportsBacklog && !showWelcome && !showProjectEmpty && !showStartup && !workspaceQuery.isError);
 	const hasArchive = archived.length > 0;
 	const terminateSession = useTerminateSession();
 	const activeProjectIdRef = useRef(projectId);
@@ -237,6 +243,16 @@ export function SessionsBoard({ projectId }: SessionsBoardProps) {
 						columns={columns}
 						key={projectId ?? "all"}
 						labels={boardLabels}
+						// Normal board grids always show Connect Jira even without config.
+						// Scratch/cloud/standalone projects cannot own local tracker settings.
+						leadingColumn={supportsBacklog ? {
+							label: t("backlog.label"), items: backlog.data?.items ?? [],
+							getItemKey: (item) => `${item.projectId}:${item.key}`,
+							renderItem: (item) => <JiraTicketCard item={item} projectName={!projectId ? backlogProjects.find((project) => project.id === item.projectId)?.name ?? item.projectId : undefined} />,
+							swatchColor: "var(--color-blue-500)",
+							headerAction: <button type="button" aria-label={t("backlog.refresh")} title={t("backlog.refresh")} disabled={backlog.isFetching} onClick={() => void backlog.refetch()} className="text-muted-foreground hover:text-foreground disabled:opacity-50"><RotateCw className="size-3.5" aria-hidden="true" /></button>,
+							notice: <JiraBacklogBody data={backlog.data} isError={backlog.isError} projectId={projectId} projects={backlogProjects} />,
+						} : undefined}
 							renderSessionCard={(session) => (
 								<BoardSessionCardAdapter
 								onOpen={() => openSession(session)}

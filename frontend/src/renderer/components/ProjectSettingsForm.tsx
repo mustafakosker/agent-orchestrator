@@ -326,6 +326,7 @@ function SettingsBody({
 			setReplacementError(result.replacementError);
 			setValidationError(null);
 			void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+			void queryClient.invalidateQueries({ queryKey: ["project-backlog"] });
 			const workspaceRefresh = onSaved();
 
 			if (result.replacementSessionId) {

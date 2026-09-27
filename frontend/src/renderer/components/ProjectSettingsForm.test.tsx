@@ -221,8 +221,9 @@ describe("ProjectSettingsForm", () => {
 
 	it("saves backlog scope separately from intake with split, trimmed statuses", async () => {
 		mockProject(backlogProject());
-		renderSettings("proj-1", [], "backlog");
-		await userEvent.click(await screen.findByRole("switch", { name: "Show Jira backlog" }));
+		const client = renderSettings("proj-1", [], "backlog");
+		const invalidated = vi.spyOn(client, "invalidateQueries");
+		await userEvent.click(await screen.findByRole("switch", { name: "Fetch Jira tickets" }));
 		expect(screen.queryByLabelText("Enable issue intake")).not.toBeInTheDocument();
 		for (const [label, value] of [["Site", " acme.atlassian.net "], ["Project key", " ACME "], ["Statuses", "Ready, In Review, , "]]) {
 			fireEvent.change(await beginEdit(label), { target: { value } });
@@ -232,6 +233,7 @@ describe("ProjectSettingsForm", () => {
 		expect(putMock.mock.calls[0][0]).toBe("/api/v1/projects/{id}");
 		expect(putMock.mock.calls[0][1].body.config.trackerBacklog).toEqual(readyBacklog);
 		expect(putMock.mock.calls[0][1].body.config.trackerIntake).toBeUndefined();
+		await waitFor(() => expect(invalidated).toHaveBeenCalledWith({ queryKey: ["project-backlog"] }));
 	});
 
 	it("round-trips backlog statuses and preserves unmodeled fields", async () => {
@@ -246,7 +248,7 @@ describe("ProjectSettingsForm", () => {
 	it("omits a disabled blank backlog config", async () => {
 		mockProject(backlogProject({ enabled: false, provider: "jira", site: "", projectKey: "", statuses: [] }));
 		renderSettings("proj-1", [], "backlog");
-		await screen.findByRole("switch", { name: "Show Jira backlog" });
+		await screen.findByRole("switch", { name: "Fetch Jira tickets" });
 		submitSettings();
 		await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
 		expect(putMock.mock.calls[0][1].body.config.trackerBacklog).toBeUndefined();
@@ -259,7 +261,7 @@ describe("ProjectSettingsForm", () => {
 	])("blocks save with incomplete backlog %s", async (field, value, message) => {
 		mockProject(backlogProject({ ...readyBacklog, [field as string]: value }));
 		renderSettings("proj-1", [], "backlog");
-		await screen.findByRole("switch", { name: "Show Jira backlog" });
+		await screen.findByRole("switch", { name: "Fetch Jira tickets" });
 		submitSettings();
 		expect(await screen.findAllByText(message as string)).not.toHaveLength(0);
 		expect(putMock).not.toHaveBeenCalled();
@@ -269,7 +271,7 @@ describe("ProjectSettingsForm", () => {
 		mockProject(backlogProject(readyBacklog));
 		renderSettings("proj-1", [], "intake");
 		await screen.findByLabelText("Enable issue intake");
-		expect(screen.queryByRole("switch", { name: "Show Jira backlog" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("switch", { name: "Fetch Jira tickets" })).not.toBeInTheDocument();
 	});
 
 	it("shows missing Jira credentials without blocking a valid settings save", async () => {
@@ -290,7 +292,7 @@ describe("ProjectSettingsForm", () => {
 		mockProject(backlogProject({ enabled: true }, "scratch"));
 		renderSettings("proj-1", [], "backlog");
 		await screen.findByText("Jira backlog is not available for scratch projects.");
-		expect(screen.queryByRole("switch", { name: "Show Jira backlog" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("switch", { name: "Fetch Jira tickets" })).not.toBeInTheDocument();
 		submitSettings();
 		await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
 		expect(putMock.mock.calls[0][1].body.config).not.toHaveProperty("trackerBacklog");

@@ -131,6 +131,8 @@ export type SessionsBoardGridViewProps<
 > = {
 	columns: KanbanColumnView[];
 	labels: BoardColumnLabels;
+	// Keep this optional: normal app boards pass it, but generic consumers and
+	// unsupported project boards still need the four-column layout. Test both.
 	leadingColumn?: {
 		label: string;
 		items: readonly TItem[];

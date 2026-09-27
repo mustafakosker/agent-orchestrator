@@ -16,6 +16,7 @@ vi.mock("motion/react", async (importOriginal) => {
 });
 
 const {
+	backlogQueryMock,
 	navigateMock,
 	notificationShowMock,
 	postMock,
@@ -23,6 +24,7 @@ const {
 	usageQueryMock,
 	boardActionsInPanelMock,
 } = vi.hoisted(() => ({
+	backlogQueryMock: vi.fn(),
 	navigateMock: vi.fn(),
 	notificationShowMock: vi.fn(),
 	postMock: vi.fn(),
@@ -47,6 +49,8 @@ vi.mock("../hooks/useWorkspaceQuery", () => ({
 		};
 	},
 }));
+
+vi.mock("../hooks/useProjectBacklog", () => ({ useProjectBacklog: backlogQueryMock }));
 
 vi.mock("../hooks/useSessionUsageSummaries", () => ({
 	useSessionUsageSummaries: usageQueryMock,
@@ -78,6 +82,7 @@ vi.mock("../lib/platform", async (importOriginal) => {
 });
 
 import { archiveToggleHeightClassName, archiveToggleOffsetClassName } from "@aoagents/product-ui";
+import { useUiStore } from "../stores/ui-store";
 import { SessionsBoard } from "./SessionsBoard";
 import { toBoardSessionPresentation } from "./SessionsBoardAdapters";
 import { TooltipProvider } from "./ui/tooltip";
@@ -105,6 +110,7 @@ async function expandArchive() {
 }
 
 beforeEach(() => {
+	backlogQueryMock.mockReset().mockReturnValue({ data: { state: "not_configured", reason: "config_absent", items: [], stale: false }, refetch: vi.fn() });
 	navigateMock.mockReset();
 	notificationShowMock.mockReset().mockResolvedValue(undefined);
 	postMock.mockReset().mockResolvedValue({ data: {} });
@@ -1580,6 +1586,44 @@ describe("SessionsBoard", () => {
 		});
 		renderBoard("p1");
 		expect(screen.queryByText(appI18n.t("home.folderMissing"))).not.toBeInTheDocument();
+	});
+});
+
+describe("Jira backlog board wiring", () => {
+	const worker = () => boardSession({ id: "s1", title: "Session only", status: "working" });
+	beforeEach(() => { workspaceQueryMock.mockReturnValue({ data: [workspaceWithSessions([worker()])], isSuccess: true }); });
+	it("always offers Connect Jira for an unconfigured project and deep-links to Backlog settings", async () => {
+		renderBoard("p1");
+		await userEvent.click(screen.getByRole("button", { name: "Connect Jira" }));
+		expect(useUiStore.getState().settingsModal).toEqual({ scope: "project", projectId: "p1", section: "backlog" });
+	});
+	it("keeps ticket cards and session cards in separate lanes, refreshes, and does not navigate on ticket clicks", async () => {
+		const refetch = vi.fn();
+		backlogQueryMock.mockReturnValue({ data: { state: "ok", stale: true, fetchedAt: "2026-09-26T10:00:00Z", items: [{ key: "ACME-1", title: "Ticket only", status: "In Review", assignee: "Alice", projectId: "p1", url: "https://jira.example/browse/ACME-1" }] }, refetch });
+		renderBoard("p1");
+		const lane = screen.getByTestId("board-leading-column");
+		expect(within(lane).getByText("Ticket only")).toBeInTheDocument();
+		expect(within(lane).getByText("In Review")).toBeInTheDocument();
+		expect(within(lane).getByText(/As of/)).toBeInTheDocument();
+		expect(within(lane).queryByText("Session only")).not.toBeInTheDocument();
+		for (const column of screen.getAllByTestId("board-column")) expect(within(column).queryByTestId("jira-ticket-card")).not.toBeInTheDocument();
+		expect(screen.getByText("Session only").closest('[data-testid="board-column"]')).not.toBeNull();
+		await userEvent.click(within(lane).getByRole("button", { name: "Refresh Jira backlog" }));
+		expect(refetch).toHaveBeenCalledOnce();
+		await userEvent.click(within(lane).getByTestId("jira-ticket-card"));
+		expect(navigateMock).not.toHaveBeenCalled();
+	});
+	it("lets the all-projects user choose which project to connect", async () => {
+		workspaceQueryMock.mockReturnValue({ data: [workspaceWithSessions([worker()]), { ...workspaceWithSessions([]), id: "p2", name: "Second" }], isSuccess: true });
+		renderBoard();
+		await userEvent.click(screen.getByRole("button", { name: "Connect Jira to Second" }));
+		expect(useUiStore.getState().settingsModal).toEqual({ scope: "project", projectId: "p2", section: "backlog" });
+	});
+	it("omits the lane for scratch projects and does not query them", () => {
+		workspaceQueryMock.mockReturnValue({ data: [{ ...workspaceWithSessions([worker()]), kind: "scratch" }], isSuccess: true });
+		renderBoard("p1");
+		expect(screen.queryByTestId("board-leading-column")).not.toBeInTheDocument();
+		expect(backlogQueryMock).toHaveBeenCalledWith("p1", false);
 	});
 });
 
