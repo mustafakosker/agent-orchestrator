@@ -2491,6 +2491,26 @@ paths:
       summary: Remember project permissions for future sessions
       tags:
       - projects
+  /api/v1/projects/backlog:
+    get:
+      operationId: getProjectsBacklog
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacklogResponse'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+      summary: List eligible tracker backlog tickets across projects with independent
+        failures
+      tags:
+      - projects
   /api/v1/projects/clone:
     post:
       operationId: cloneProject
@@ -8463,6 +8483,30 @@ components:
       required:
       - data
       type: object
+    BacklogFailure:
+      properties:
+        message:
+          type: string
+        projectId:
+          type: string
+        reason:
+          enum:
+          - config_absent
+          - credentials_missing
+          - auth_failed
+          - config_invalid
+          - unavailable
+          type: string
+        state:
+          enum:
+          - not_configured
+          - error
+          type: string
+      required:
+      - projectId
+      - state
+      - reason
+      type: object
     BacklogItem:
       properties:
         assignee:
@@ -8492,6 +8536,12 @@ components:
       type: object
     BacklogResponse:
       properties:
+        failures:
+          description: Per-project failures on the all-projects board; successful
+            projects remain visible.
+          items:
+            $ref: '#/components/schemas/BacklogFailure'
+          type: array
         fetchedAt:
           description: When Items was fetched from the provider; null when never fetched.
           format: date-time

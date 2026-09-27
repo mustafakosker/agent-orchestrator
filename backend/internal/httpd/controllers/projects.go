@@ -36,6 +36,7 @@ func (c *ProjectsController) Register(r chi.Router) {
 	r.Post("/projects/initialize", c.initialize)
 	r.Get("/projects/{id}", c.get)
 	r.Get("/projects/{id}/backlog", c.backlog)
+	r.Get("/projects/backlog", c.backlogAll)
 	r.Put("/projects/{id}", c.updateSettings)
 	r.Put("/projects/{id}/config", c.setConfig)
 	r.Patch("/projects/{id}/permissions", c.setPermissions)

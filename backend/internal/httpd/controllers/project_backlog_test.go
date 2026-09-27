@@ -17,9 +17,10 @@ import (
 )
 
 type fakeBacklog struct {
-	result backlogsvc.Result
-	err    error
-	calls  int
+	result   backlogsvc.Result
+	err      error
+	calls    int
+	allCalls int
 }
 
 func (f *fakeBacklog) Ready(context.Context, string) (backlogsvc.Result, error) {
@@ -28,7 +29,7 @@ func (f *fakeBacklog) Ready(context.Context, string) (backlogsvc.Result, error) 
 }
 
 func (f *fakeBacklog) ReadyAll(context.Context) (backlogsvc.Result, error) {
-	f.calls++
+	f.allCalls++
 	return f.result, f.err
 }
 
@@ -249,5 +250,53 @@ func TestBacklogUnassignedHasEmptyAssignee(t *testing.T) {
 	item := body["items"].([]any)[0].(map[string]any)
 	if got, ok := item["assignee"]; ok && got != "" {
 		t.Fatalf("assignee = %v, want empty/absent for an unassigned ticket", got)
+	}
+}
+
+func TestAggregateBacklogProjectsFailuresAndFreshness(t *testing.T) {
+	fetched := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
+	mgr := &fakeBacklog{result: backlogsvc.Result{
+		Items: []backlogsvc.Item{sampleItem()}, State: backlogsvc.StateOK,
+		FetchedAt: fetched, Stale: true,
+		Failures: []backlogsvc.Failure{{ProjectID: "p2", State: backlogsvc.StateError, Reason: backlogsvc.ReasonAuthFailed, Message: "expired"}},
+	}}
+	code, body := getBacklog(t, mgr, "/projects/backlog")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+	if mgr.allCalls != 1 || mgr.calls != 0 {
+		t.Fatalf("ReadyAll calls=%d Ready calls=%d", mgr.allCalls, mgr.calls)
+	}
+	if body["state"] != "ok" || body["stale"] != true || body["fetchedAt"] != "2026-09-26T09:00:00Z" {
+		t.Fatalf("aggregate freshness/state = %#v", body)
+	}
+	items := body["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["projectId"] != "p1" {
+		t.Fatalf("healthy contribution lost: %#v", items)
+	}
+	failures, ok := body["failures"].([]any)
+	if !ok || len(failures) != 1 {
+		t.Fatalf("failures=%#v", body["failures"])
+	}
+	failure := failures[0].(map[string]any)
+	for key, want := range map[string]string{"projectId": "p2", "state": "error", "reason": "auth_failed", "message": "expired"} {
+		if failure[key] != want {
+			t.Fatalf("failure[%s]=%v want %s", key, failure[key], want)
+		}
+	}
+}
+
+func TestAggregateBacklogEmptyAndMissingManager(t *testing.T) {
+	mgr := &fakeBacklog{result: backlogsvc.Result{State: backlogsvc.StateNotConfigured, Reason: backlogsvc.ReasonConfigAbsent}}
+	code, body := getBacklog(t, mgr, "/projects/backlog")
+	if code != http.StatusOK || body["reason"] != "config_absent" || body["fetchedAt"] != nil {
+		t.Fatalf("status=%d body=%#v", code, body)
+	}
+	if items, ok := body["items"].([]any); !ok || len(items) != 0 {
+		t.Fatalf("items=%#v", body["items"])
+	}
+	code, _ = getBacklog(t, nil, "/projects/backlog")
+	if code != http.StatusNotImplemented {
+		t.Fatalf("nil manager status=%d", code)
 	}
 }

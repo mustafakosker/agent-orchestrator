@@ -36,6 +36,14 @@ type BacklogItem struct {
 	ProjectID string `json:"projectId" description:"AO project the ticket belongs to."`
 }
 
+// BacklogFailure describes a project that did not contribute to the aggregate.
+type BacklogFailure struct {
+	ProjectID string `json:"projectId"`
+	State     string `json:"state" enum:"not_configured,error"`
+	Reason    string `json:"reason" enum:"config_absent,credentials_missing,auth_failed,config_invalid,unavailable"`
+	Message   string `json:"message,omitempty"`
+}
+
 // BacklogResponse is the backlog lane read model.
 //
 // A provider failure never produces a non-2xx: the lane is a view, so failures
@@ -45,12 +53,13 @@ type BacklogItem struct {
 // FetchedAt always describes when Items was fetched from the provider, never
 // when the request was served, so a stale lane cannot claim freshness.
 type BacklogResponse struct {
-	Items     []BacklogItem `json:"items" description:"Eligible tickets; always an array, never null."`
-	FetchedAt *time.Time    `json:"fetchedAt" description:"When Items was fetched from the provider; null when never fetched."`
-	Stale     bool          `json:"stale" description:"True when serving a retained entry after a failed refresh."`
-	State     string        `json:"state" enum:"ok,not_configured,error" description:"Lane outcome."`
-	Reason    string        `json:"reason,omitempty" enum:"config_absent,credentials_missing,auth_failed,config_invalid,unavailable" description:"Cause discriminator within a non-ok state."`
-	Message   string        `json:"message,omitempty" description:"Provider message for an error state."`
+	Failures  []BacklogFailure `json:"failures,omitempty" description:"Per-project failures on the all-projects board; successful projects remain visible."`
+	Items     []BacklogItem    `json:"items" description:"Eligible tickets; always an array, never null."`
+	FetchedAt *time.Time       `json:"fetchedAt" description:"When Items was fetched from the provider; null when never fetched."`
+	Stale     bool             `json:"stale" description:"True when serving a retained entry after a failed refresh."`
+	State     string           `json:"state" enum:"ok,not_configured,error" description:"Lane outcome."`
+	Reason    string           `json:"reason,omitempty" enum:"config_absent,credentials_missing,auth_failed,config_invalid,unavailable" description:"Cause discriminator within a non-ok state."`
+	Message   string           `json:"message,omitempty" description:"Provider message for an error state."`
 }
 
 func (c *ProjectsController) backlog(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +69,19 @@ func (c *ProjectsController) backlog(w http.ResponseWriter, r *http.Request) {
 	}
 	projectID := strings.TrimSpace(chi.URLParam(r, "id"))
 	result, err := c.Backlog.Ready(r.Context(), projectID)
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, backlogResponse(result))
+}
+
+func (c *ProjectsController) backlogAll(w http.ResponseWriter, r *http.Request) {
+	if c.Backlog == nil {
+		apispec.NotImplemented(w, r, "GET", "/api/v1/projects/backlog")
+		return
+	}
+	result, err := c.Backlog.ReadyAll(r.Context())
 	if err != nil {
 		envelope.WriteError(w, r, err)
 		return
@@ -89,6 +111,9 @@ func backlogResponse(result backlogsvc.Result) BacklogResponse {
 		State:   string(result.State),
 		Reason:  string(result.Reason),
 		Message: result.Message,
+	}
+	for _, failure := range result.Failures {
+		out.Failures = append(out.Failures, BacklogFailure{ProjectID: failure.ProjectID, State: string(failure.State), Reason: string(failure.Reason), Message: failure.Message})
 	}
 	if !result.FetchedAt.IsZero() {
 		fetched := result.FetchedAt.UTC()

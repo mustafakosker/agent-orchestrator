@@ -271,6 +271,7 @@ The cache is load-bearing, not an optimization. It is the only thing that decoup
 
 ```
 GET /api/v1/projects/{id}/backlog
+GET /api/v1/projects/backlog
 ```
 
 registered in `ProjectsController.Register` (`backend/internal/httpd/controllers/projects.go:26`) alongside the existing project routes. The response body:
@@ -453,7 +454,11 @@ Clicking the card **opens the ticket in the system browser** via `openLinkInSyst
 
 ### `SessionsBoard` wiring
 
-`frontend/src/renderer/components/SessionsBoard.tsx` calls `useProjectBacklog`, and passes `leadingColumn` to `SessionsBoardGridView` (`SessionsBoard.tsx:236`) only when the project has backlog display enabled. The lane's header renders the count, the refresh action, and — depending on `state` and `reason` — one of the states below.
+`frontend/src/renderer/components/SessionsBoard.tsx` calls `useProjectBacklog`, and passes `leadingColumn` to `SessionsBoardGridView` (`SessionsBoard.tsx:236`) unconditionally on the grid branch, even when backlog configuration is absent or disabled. The lane's header renders the count, the refresh action, and — depending on `state` and `reason` — one of the states below.
+
+**Explicit human decision (2026-09-27):** unconditional visibility overrides the original opt-in design and the reviewers' recommendation. The accepted tradeoff is that users who never use Jira see a Connect Jira lane. Scratch project boards are the exception: their config cannot contain backlog settings, so they omit the lane. The all-projects board offers named non-scratch project choices for Connect Jira rather than silently picking a project; if there are no eligible projects it explains that a repository project is needed.
+
+The aggregate route delegates to `ReadyAll` and carries `failures` with each affected projectId, state, reason and message alongside successful items. Aggregate fetchedAt is the oldest contributing fetch and stale is true if any contributor is stale. The UI reports each failure with its project name without hiding healthy tickets.
 
 The existing empty and welcome states are unchanged: the backlog lane appears only on the branch that already renders the grid, so `BoardWelcome` and `ProjectBoardEmpty` keep taking precedence over it.
 
@@ -616,7 +621,7 @@ These two are deliberately distinct. Both mean "no tickets yet", and they are fi
 
 **401 or 403.** Categorically different from a transient failure, and treated as such. A rejected credential will be rejected again on the next tick, so the service **backs off** rather than retrying at the normal cadence, and surfaces a distinct "reauthenticate" message instead of a generic error. This mirrors the distinction `logTrackerDisabled` already draws between "no usable token" and "setup failed": a credential problem needs a person, not a retry.
 
-**429.** The service honors `Retry-After` from `httpkit.RateLimitError`, **extends the cache TTL** to at least that duration, and **keeps serving stale** data meanwhile. The client refetch interval is also suppressed until the window passes. Jira Cloud's limits are per-user and unforgiving, and a board left open all day must not trip them; retrying into a 429 is the one behavior guaranteed to make it worse.
+**429.** The service honors `Retry-After` from `httpkit.RateLimitError`, **extends the cache TTL** to at least that duration, and **keeps serving stale** data meanwhile. Server-side backoff is the sole rate-limit mechanism: the service refuses provider calls before its private `notBefore` deadline. Client polling continues every 60 seconds, reaching only the local daemon and returning cached data during that window, with zero provider calls. No client-visible `retryAt` is added; it would add contract surface without additional provider protection.
 
 **Unknown project key or missing Browse Projects permission.** Jira answers **400** to the JQL rather than returning an empty result set. This maps to a **visible configuration error** — `state: "error"` with a config reason, carrying Jira's own message — and **never to an empty list.** On screen, "this project has zero ready tickets" and "the project key is wrong" are indistinguishable; conflating them sends someone to debug their Jira workflow when the actual fault is one string in AO's config. This mapping is the difference between a five-second fix and an afternoon.
 
@@ -676,7 +681,7 @@ Controller tests in `backend/internal/httpd/controllers/`:
 vitest + React Testing Library, in the style of `packages/product-ui/src/SessionsBoardView.test.tsx`, `frontend/src/renderer/components/SessionsBoard.test.tsx`, and `frontend/src/renderer/__tests__/integration/board-empty-states.test.tsx`:
 
 - the leading lane renders Jira cards while **all four session lanes stay unaffected** — same sessions, same lanes, same order as without the prop;
-- the grid resolves to **five columns with the backlog enabled and four without** — this is the regression guard on replacing the hardcoded `grid-cols-4`, and it asserts the resolved class and the rendered column count, not just the prop;
+- the grid resolves to **five columns with a leadingColumn and four without it** — this is the regression guard on replacing the hardcoded `grid-cols-4`, and it asserts the resolved class and the rendered column count, not just the prop;
 - `reason: "config_absent"` renders the connect affordance and no cards, and clicking it opens project settings at the `"backlog"` section (asserted against the UI store's settings action, not a navigation spy);
 - `reason: "credentials_missing"` renders the environment-variable message and **no** settings deep-link — asserted as distinct from the `config_absent` body, since a single shared "not configured" rendering is exactly the regression this guards;
 - `state: "ok"` with `stale: true` renders the "as of" indicator;

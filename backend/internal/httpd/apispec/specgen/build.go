@@ -154,6 +154,7 @@ func schemaName(_ reflect.Type, defaultName string) string {
 var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names include reset-credit contracts; no credential value is stored here.
 	"ControllersSettingsResponse":                          "SettingsResponse",
 	"ControllersBacklogResponse":                           "BacklogResponse",
+	"ControllersBacklogFailure":                            "BacklogFailure",
 	"ControllersBacklogItem":                               "BacklogItem",
 	"ControllersDesktopWorkspaceLocationResponse":          "DesktopWorkspaceLocationResponse",
 	"ControllersUpdateSessionInterfaceRequest":             "UpdateSessionInterfaceRequest",
@@ -1934,6 +1935,11 @@ func projectOperations() []operation {
 				{http.StatusNotFound, envelope.APIError{}},
 				{http.StatusInternalServerError, envelope.APIError{}},
 			},
+		},
+		{
+			method: http.MethodGet, path: "/api/v1/projects/backlog", id: "getProjectsBacklog", tag: "projects",
+			summary: "List eligible tracker backlog tickets across projects with independent failures",
+			resps:   []respUnit{{http.StatusOK, controllers.BacklogResponse{}}, {http.StatusInternalServerError, envelope.APIError{}}},
 		},
 		{
 			method: http.MethodGet, path: "/api/v1/projects/{id}/backlog", id: "getProjectBacklog", tag: "projects",

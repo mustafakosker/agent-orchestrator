@@ -592,6 +592,19 @@ func TestReadyAllReportsOldestFetchedAt(t *testing.T) {
 	if !got.FetchedAt.Equal(oldest) {
 		t.Fatalf("FetchedAt = %v, want the OLDEST contributor %v", got.FetchedAt, oldest)
 	}
+	if got.Stale {
+		t.Fatal("fresh contributors reported stale")
+	}
+	// Expire p1 only; its failed refresh retains its older tickets while p2 is fresh.
+	clk.advance(31 * time.Second)
+	tr.setResult(nil, errors.New("offline"))
+	got, err = svc.ReadyAll(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Stale || !got.FetchedAt.Equal(oldest) || len(got.Items) != 2 || got.State != backlogsvc.StateOK {
+		t.Fatalf("mixed stale/fresh aggregate = %#v", got)
+	}
 }
 
 // failPerProjectTracker fails only for one project key.
