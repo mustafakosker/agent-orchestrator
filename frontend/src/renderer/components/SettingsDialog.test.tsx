@@ -79,6 +79,14 @@ describe("SettingsDialog", () => {
 		return render(<QueryClientProvider client={queryClient}><SettingsDialog /></QueryClientProvider>);
 	}
 
+	it("offers a separate Backlog settings section", async () => {
+		useUiStore.getState().openProjectSettings("proj-1");
+		renderSettingsDialog();
+		await userEvent.click(await screen.findByRole("button", { name: "Backlog" }));
+		expect(screen.getByRole("button", { name: "Backlog" })).toHaveAttribute("aria-current", "page");
+		expect(screen.getByRole("button", { name: "Intake" })).not.toHaveAttribute("aria-current", "page");
+	});
+
 	it("does not dismiss project settings while a save is pending", async () => {
 		useUiStore.getState().openProjectSettings("proj-1");
 		renderSettingsDialog();
@@ -223,4 +231,11 @@ describe("SettingsDialog", () => {
 		fireEvent.keyDown(document.body, { key: "Escape" });
 		await vi.waitFor(() => expect(useUiStore.getState().settingsModal).toBeNull());
 	});
+});
+
+it("honors a Backlog settings deep-link", async () => {
+	useUiStore.getState().openProjectSettings("p1", "backlog");
+	const client = new QueryClient();
+	render(<QueryClientProvider client={client}><SettingsDialog /></QueryClientProvider>);
+	expect(await screen.findByRole("button", { name: "Backlog" })).toHaveAttribute("aria-current", "page");
 });

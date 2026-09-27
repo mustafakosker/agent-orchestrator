@@ -52,6 +52,11 @@ function hoursAgo(hours: number): string {
 }
 
 describe("CreateProjectAgentSheet", () => {
+	it("keeps Jira backlog configuration out of project creation", () => {
+		renderSheet();
+		expect(screen.queryByRole("switch", { name: "Fetch Jira tickets" })).not.toBeInTheDocument();
+		expect(screen.queryByLabelText("Project key")).not.toBeInTheDocument();
+	});
 	it("shakes the active sheet when creation fails", () => {
 		renderSheet(undefined, undefined, { shake: true });
 

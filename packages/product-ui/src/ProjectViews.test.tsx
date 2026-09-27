@@ -114,6 +114,30 @@ describe("project models", () => {
 		).toBe("name_too_long");
 	});
 
+	it("validates backlog scope without changing existing validation precedence", () => {
+		const valid = {
+			displayName: "Project", workerAgent: "codex", orchestratorAgent: "claude-code",
+			intakeEnabled: false, intakeAssignee: "",
+			backlogEnabled: true, backlogSite: "acme.atlassian.net", backlogProjectKey: "ACME", backlogStatuses: "Ready, In Review",
+		};
+		for (const [field, code] of [
+			["backlogSite", "backlog_site_required"],
+			["backlogProjectKey", "backlog_project_key_required"],
+			["backlogStatuses", "backlog_statuses_required"],
+		] as const) {
+			const incomplete = { ...valid, [field]: "   " };
+			expect(validateProjectSettings(incomplete)).toBe(code);
+			expect(validateProjectSettings(incomplete, { validateBacklog: false })).toBeNull();
+			expect(validateProjectSettings({ ...incomplete, backlogEnabled: false })).toBeNull();
+			expect(validateProjectSettings({ ...incomplete, intakeEnabled: true })).toBe("intake_assignee_required");
+			expect(validateProjectSettings({ ...incomplete, workerAgent: "" })).toBe("agents_required");
+			expect(validateProjectSettings({ ...incomplete, displayName: "" })).toBe("name_required");
+			expect(validateProjectSettings({ ...incomplete, displayName: "x".repeat(101) })).toBe("name_too_long");
+		}
+		expect(validateProjectSettings({ ...valid, backlogStatuses: " , , " })).toBe("backlog_statuses_required");
+		expect(validateProjectSettings(valid)).toBeNull();
+	});
+
 	it("gates project setup on agents and intake eligibility", () => {
 		expect(canSubmitProjectSetup({ workerAgent: "codex", orchestratorAgent: "claude-code" })).toBe(true);
 		expect(

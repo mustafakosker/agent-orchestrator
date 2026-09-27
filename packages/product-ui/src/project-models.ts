@@ -21,6 +21,10 @@ export type ProjectSettingsValues = {
 	intakeEnabled: boolean;
 	intakeRepo: string;
 	intakeAssignee: string;
+	backlogEnabled: boolean;
+	backlogSite: string;
+	backlogProjectKey: string;
+	backlogStatuses: string;
 };
 
 export const MAX_PROJECT_DISPLAY_NAME_LEN = 100;
@@ -29,14 +33,17 @@ export type ProjectSettingsValidationCode =
 	| "agents_required"
 	| "name_required"
 	| "name_too_long"
-	| "intake_assignee_required";
+	| "intake_assignee_required"
+	| "backlog_site_required"
+	| "backlog_project_key_required"
+	| "backlog_statuses_required";
 
 export function validateProjectSettings(
 	values: Pick<
 		ProjectSettingsValues,
 		"displayName" | "workerAgent" | "orchestratorAgent" | "intakeEnabled" | "intakeAssignee"
-	>,
-	options: { validateIntake?: boolean; originalDisplayName?: string } = {},
+	> & Partial<Pick<ProjectSettingsValues, "backlogEnabled" | "backlogSite" | "backlogProjectKey" | "backlogStatuses">>,
+	options: { validateIntake?: boolean; validateBacklog?: boolean; originalDisplayName?: string } = {},
 ): ProjectSettingsValidationCode | null {
 	if (values.workerAgent === "" || values.orchestratorAgent === "") return "agents_required";
 	const trimmedName = values.displayName.trim();
@@ -49,6 +56,11 @@ export function validateProjectSettings(
 	}
 	if (options.validateIntake !== false && values.intakeEnabled && values.intakeAssignee.trim() === "") {
 		return "intake_assignee_required";
+	}
+	if (options.validateBacklog !== false && values.backlogEnabled) {
+		if (!values.backlogSite?.trim()) return "backlog_site_required";
+		if (!values.backlogProjectKey?.trim()) return "backlog_project_key_required";
+		if (!values.backlogStatuses?.split(",").some((status) => status.trim())) return "backlog_statuses_required";
 	}
 	return null;
 }

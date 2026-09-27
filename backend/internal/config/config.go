@@ -103,6 +103,31 @@ type GitLabConfig struct {
 	HostTokens map[string]string
 }
 
+// JiraCredential is one site's Jira credential. Email is set only for Jira
+// Cloud, whose credential is an email plus an API token presented over HTTP
+// Basic; a bare Token is a Data Center personal access token presented as a
+// Bearer. The tracker adapter picks the scheme from this shape.
+type JiraCredential struct {
+	Email string
+	Token string
+}
+
+// JiraConfig carries the Jira site allowlist and per-site credentials.
+//
+// Unlike GitLabConfig there is no implicit default site: Jira Cloud sites are
+// per-tenant hostnames and nothing corresponds to gitlab.com, so a site absent
+// from AllowedHosts is rejected before any credential is attached.
+type JiraConfig struct {
+	// AllowedHosts is the list of Jira sites the tracker may talk to (each may
+	// include a port, e.g. "jira.internal:8443").
+	AllowedHosts []string
+	// HostCredentials maps a site to a credential override. Sites in
+	// AllowedHosts without an explicit entry fall back to the default
+	// environment credential (AO_JIRA_EMAIL + AO_JIRA_API_TOKEN, or
+	// AO_JIRA_PAT), resolved by the adapter's credential chain.
+	HostCredentials map[string]JiraCredential
+}
+
 // DefaultAllowedOrigins are the browser origins the daemon's CORS boundary
 // trusts. General routes additionally admit loopback-served content, while
 // credential-management routes accept only this exact list (plus native
@@ -156,6 +181,8 @@ type Config struct {
 	// GitLab carries the self-managed GitLab host allowlist and per-host
 	// token overrides, loaded once at boot from environment variables.
 	GitLab GitLabConfig
+	// Jira carries the Jira site allowlist and per-site credentials.
+	Jira JiraConfig
 	// Client identifies which client this deployment serves (AO_CLIENT). Empty
 	// means no client identity, which keeps client-gated offerings off.
 	Client string
@@ -202,6 +229,8 @@ func (c Config) Addr() string {
 //	AO_TELEMETRY_POSTHOG_HOST  PostHog host (default DefaultTelemetryPostHogHost)
 //	AO_GITLAB_ALLOWED_HOSTS    comma-separated self-managed GitLab hosts (each may include :port)
 //	AO_GITLAB_HOST_TOKENS      host=token,host=token per-host token overrides
+//	AO_JIRA_ALLOWED_HOSTS      comma-separated Jira sites (each may include :port)
+//	AO_JIRA_HOST_CREDENTIALS   site=email:token,site=pat per-site credential overrides
 //	AO_CLIENT                  client identity for offering gates (trimmed, default empty)
 //	AO_CLOUD_OFFERING          cloud offering flag off|on (default off)
 //	AO_LOCAL_OFFERING          local offering off|on (default on)
@@ -340,6 +369,33 @@ func Load() (Config, error) {
 		cfg.GitLab.HostTokens = tokens
 	}
 
+	if raw, ok := os.LookupEnv("AO_JIRA_ALLOWED_HOSTS"); ok && raw != "" {
+		hosts := make([]string, 0, 4)
+		for _, h := range strings.Split(raw, ",") {
+			h = strings.TrimSpace(h)
+			if h == "" {
+				continue
+			}
+			hosts = append(hosts, h)
+		}
+		cfg.Jira.AllowedHosts = hosts
+	}
+
+	if raw, ok := os.LookupEnv("AO_JIRA_HOST_CREDENTIALS"); ok && raw != "" {
+		// Reuse the GitLab host=token parser, then split each value into the
+		// Jira credential's two shapes: "email:token" is Cloud Basic, a bare
+		// value is a Data Center PAT.
+		values, err := parseHostTokenMap("AO_JIRA_HOST_CREDENTIALS", raw)
+		if err != nil {
+			return Config{}, err
+		}
+		creds := make(map[string]JiraCredential, len(values))
+		for host, value := range values {
+			creds[host] = parseJiraCredential(value)
+		}
+		cfg.Jira.HostCredentials = creds
+	}
+
 	if raw := os.Getenv("AO_CLIENT"); raw != "" {
 		cfg.Client = strings.TrimSpace(raw)
 	}
@@ -425,6 +481,21 @@ func parseTelemetryDisabledEvents(raw string) []string {
 		}
 	}
 	return names
+}
+
+// parseJiraCredential splits one configured credential value into its parts.
+// "email:token" is a Jira Cloud credential presented over HTTP Basic; a value
+// with no colon is a Data Center personal access token presented as a Bearer.
+// Only the first colon separates, because an API token may contain colons.
+func parseJiraCredential(value string) JiraCredential {
+	email, token, ok := strings.Cut(strings.TrimSpace(value), ":")
+	if !ok {
+		return JiraCredential{Token: strings.TrimSpace(email)}
+	}
+	return JiraCredential{
+		Email: strings.TrimSpace(email),
+		Token: strings.TrimSpace(token),
+	}
 }
 
 // parseHostTokenMap parses a host=token,host=token map. Whitespace around

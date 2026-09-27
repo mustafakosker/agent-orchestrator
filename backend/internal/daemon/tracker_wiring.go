@@ -11,6 +11,7 @@ import (
 	scmgitlab "github.com/aoagents/agent-orchestrator/backend/internal/adapters/scm/gitlab"
 	trackergithub "github.com/aoagents/agent-orchestrator/backend/internal/adapters/tracker/github"
 	trackergitlab "github.com/aoagents/agent-orchestrator/backend/internal/adapters/tracker/gitlab"
+	trackerjira "github.com/aoagents/agent-orchestrator/backend/internal/adapters/tracker/jira"
 	trackermulti "github.com/aoagents/agent-orchestrator/backend/internal/adapters/tracker/multi"
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -85,6 +86,30 @@ func newGitLabTracker(gitlabCfg config.GitLabConfig) (ports.Tracker, error) {
 	})
 }
 
+// newJiraTracker constructs a site-aware Jira tracker. AllowedHosts and
+// HostCredentials from JiraConfig are passed through so the tracker can route
+// each Jira site to the correct credential. This mirrors newGitLabTracker's
+// shape, with one deliberate difference: Jira has no default site, so a site
+// absent from AllowedHosts is rejected rather than falling back.
+func newJiraTracker(jiraCfg config.JiraConfig) (ports.Tracker, error) {
+	hostCreds := make(map[string]trackerjira.CredentialSource, len(jiraCfg.HostCredentials))
+	for host, cred := range jiraCfg.HostCredentials {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if host == "" {
+			continue
+		}
+		hostCreds[host] = trackerjira.StaticCredentialSource{
+			Email: cred.Email,
+			Token: cred.Token,
+		}
+	}
+	return trackerjira.New(trackerjira.Options{
+		Credential:      trackerjira.DefaultCredentialSource(),
+		AllowedHosts:    jiraCfg.AllowedHosts,
+		HostCredentials: hostCreds,
+	})
+}
+
 // newMultiTracker builds a multi-tracker dispatching to both GitHub and
 // GitLab sub-trackers. The daemon builds it once (in Run) and shares the
 // instance between the session service and the intake observer. A GitHub
@@ -96,7 +121,7 @@ func newGitLabTracker(gitlabCfg config.GitLabConfig) (ports.Tracker, error) {
 // same degrade-gracefully pattern used by newMultiSCMProvider. Callers must
 // tolerate a nil ports.Tracker (the session service's nil-guard handles
 // this).
-func newMultiTracker(gitlabCfg config.GitLabConfig, logger *slog.Logger) ports.Tracker {
+func newMultiTracker(gitlabCfg config.GitLabConfig, jiraCfg config.JiraConfig, logger *slog.Logger) ports.Tracker {
 	var named []trackermulti.NamedTracker
 
 	// Probing the environment is a cheap read — no subprocess. Only when no
@@ -117,6 +142,21 @@ func newMultiTracker(gitlabCfg config.GitLabConfig, logger *slog.Logger) ports.T
 	} else {
 		named = append(named, trackermulti.NamedTracker{Key: "gitlab", Tracker: t})
 	}
+
+	// Jira is always lazy, unlike GitLab's eager construction: most
+	// installations have no Jira configured, and deferring means an
+	// unconfigured Jira neither blocks daemon boot nor logs a warning at it.
+	// lazyTracker already gives the right semantics — no credential is
+	// resolved until something asks for Jira data, and a construction failure
+	// is not cached, so configuring AO_JIRA_PAT later needs no restart.
+	named = append(named, trackermulti.NamedTracker{
+		Key: string(domain.TrackerProviderJira),
+		Tracker: &lazyTracker{
+			name:   string(domain.TrackerProviderJira),
+			logger: logger,
+			build:  func() (ports.Tracker, error) { return newJiraTracker(jiraCfg) },
+		},
+	})
 
 	if len(named) == 0 {
 		return nil
@@ -184,7 +224,9 @@ func (t *lazyTracker) resolve() (ports.Tracker, error) {
 var _ ports.Tracker = (*lazyTracker)(nil)
 
 func logTrackerDisabled(logger *slog.Logger, provider string, err error) {
-	if errors.Is(err, trackergithub.ErrNoToken) || errors.Is(err, trackergitlab.ErrNoToken) {
+	if errors.Is(err, trackergithub.ErrNoToken) ||
+		errors.Is(err, trackergitlab.ErrNoToken) ||
+		errors.Is(err, trackerjira.ErrNoToken) {
 		logger.Warn("tracker disabled: no usable token", "provider", provider, "err", err)
 	} else {
 		logger.Warn("tracker disabled: setup failed", "provider", provider, "err", err)

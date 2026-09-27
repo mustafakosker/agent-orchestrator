@@ -62,6 +62,13 @@ func TestProjectConfigValidate(t *testing.T) {
 		{"tracker intake unknown provider", ProjectConfig{TrackerIntake: TrackerIntakeConfig{Enabled: true, Provider: "linear", Assignee: "alice"}}, true},
 		{"tracker intake repo with whitespace", ProjectConfig{TrackerIntake: TrackerIntakeConfig{Enabled: true, Repo: " acme/demo", Assignee: "alice"}}, true},
 		{"tracker intake assignee with whitespace", ProjectConfig{TrackerIntake: TrackerIntakeConfig{Enabled: true, Assignee: " alice"}}, true},
+		{"tracker backlog fully specified", ProjectConfig{TrackerBacklog: TrackerBacklogConfig{Enabled: true, Provider: TrackerProviderJira, Site: "acme.atlassian.net", ProjectKey: "ACME", Statuses: []string{"Ready"}}}, false},
+		{"tracker backlog disabled", ProjectConfig{TrackerBacklog: TrackerBacklogConfig{}}, false},
+		{"tracker backlog enabled without provider", ProjectConfig{TrackerBacklog: TrackerBacklogConfig{Enabled: true, Site: "acme.atlassian.net", ProjectKey: "ACME", Statuses: []string{"Ready"}}}, true},
+		{"tracker backlog enabled without site", ProjectConfig{TrackerBacklog: TrackerBacklogConfig{Enabled: true, Provider: TrackerProviderJira, ProjectKey: "ACME", Statuses: []string{"Ready"}}}, true},
+		{"tracker backlog enabled without project key", ProjectConfig{TrackerBacklog: TrackerBacklogConfig{Enabled: true, Provider: TrackerProviderJira, Site: "acme.atlassian.net", Statuses: []string{"Ready"}}}, true},
+		{"tracker backlog enabled without statuses", ProjectConfig{TrackerBacklog: TrackerBacklogConfig{Enabled: true, Provider: TrackerProviderJira, Site: "acme.atlassian.net", ProjectKey: "ACME"}}, true},
+		{"tracker backlog and intake together", ProjectConfig{TrackerIntake: TrackerIntakeConfig{Enabled: true, Assignee: "alice"}, TrackerBacklog: TrackerBacklogConfig{Enabled: true, Provider: TrackerProviderJira, Site: "acme.atlassian.net", ProjectKey: "ACME", Statuses: []string{"Ready"}}}, false},
 		{"auto review enabled", ProjectConfig{AutoReview: true}, false},
 		{"auto review disabled", ProjectConfig{AutoReview: false}, false},
 	}

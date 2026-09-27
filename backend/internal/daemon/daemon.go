@@ -51,6 +51,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 	agentsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/agent"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/agentauth"
+	backlogsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/backlog"
 	browsersvc "github.com/aoagents/agent-orchestrator/backend/internal/service/browser"
 	chatsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/chat"
 	devimportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/devimport"
@@ -513,7 +514,7 @@ func Run() error {
 	// blocked. May be nil (no usable credentials) — the session service's
 	// nil-guard and the intake resolver's backoff both tolerate that
 	// (issue #2685).
-	tracker := newMultiTracker(cfg.GitLab, log)
+	tracker := newMultiTracker(cfg.GitLab, cfg.Jira, log)
 	codexPlugin := codexagent.New()
 	codexHome, err := codexPlugin.NativeSessionConfigDir(ctx, nil)
 	if err != nil {
@@ -843,8 +844,14 @@ func Run() error {
 
 	bs.HostID = hostIdentity.HostID
 
+	// The backlog lane shares the multi-tracker with the session service and
+	// the intake observer. It tolerates a nil tracker: an unconfigured
+	// integration is a normal state, and the lane simply reports it.
+	backlogSvc := backlogsvc.New(backlogsvc.Deps{Tracker: tracker, Store: store})
+
 	srv, err := httpd.NewWithDeps(cfg, log, termMgr, httpd.APIDeps{
 		Projects:           projectSvc,
+		Backlog:            backlogSvc,
 		HostID:             hostIdentity.HostID,
 		Endpoints:          bs,
 		Agents:             agentSvc,

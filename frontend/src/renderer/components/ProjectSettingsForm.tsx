@@ -31,6 +31,7 @@ import { type OrchestratorReplacementFailure, useUiStore } from "../stores/ui-st
 import { newestActiveOrchestrator } from "../types/workspace";
 import { RequiredAgentField } from "./CreateProjectAgentSheet";
 import { buildIntake, deriveRepoPath, deriveRepoHost, IntakeFields, type IntakeForm } from "./IntakeFields";
+import { buildBacklog, JiraBacklogFields, JiraBacklogCredentialsNotice, type BacklogForm } from "./JiraBacklogFields";
 import { ProductExternalLink } from "./ProductExternalLink";
 import { ReviewerSelect, reviewerTrustWarning } from "./ReviewerSelect";
 import { AgentModelCombobox } from "./settings/AgentModelCombobox";
@@ -55,7 +56,7 @@ type SettingsSaveResult = {
 	spawnError: unknown;
 };
 
-export type ProjectSettingsSection = "general" | "agents" | "workflow" | "intake";
+export type ProjectSettingsSection = "general" | "agents" | "workflow" | "intake" | "backlog";
 export type ProjectSettingsSaveState = {
 	phase: "idle" | "pending" | "saving" | "saved" | "failed";
 	error?: string;
@@ -136,6 +137,7 @@ function SettingsBody({
 	const workspace = workspaceQuery.data?.find((item) => item.id === projectId);
 	const activeOrchestrator = newestActiveOrchestrator(workspace?.sessions ?? []);
 	const intake: TrackerIntakeConfig = config.trackerIntake ?? {};
+	const backlog = config.trackerBacklog ?? {};
 	const [form, setForm] = useState({
 		displayName: project.name,
 		defaultBranch: config.defaultBranch ?? DEFAULT_BRANCH_AUTO,
@@ -159,6 +161,10 @@ function SettingsBody({
 		intakeEnabled: intake.enabled ?? false,
 		intakeRepo: intake.repo ?? "",
 		intakeAssignee: intake.assignee ?? "",
+		backlogEnabled: backlog.enabled ?? false,
+		backlogSite: backlog.site ?? "",
+		backlogProjectKey: backlog.projectKey ?? "",
+		backlogStatuses: backlog.statuses?.join(", ") ?? "",
 	});
 	const [savedAt, setSavedAt] = useState<number | null>(null);
 	const [showSaving, setShowSaving] = useState(false);
@@ -187,6 +193,16 @@ function SettingsBody({
 			intakeRepo: patch.repo ?? f.intakeRepo,
 			intakeAssignee: patch.assignee ?? f.intakeAssignee,
 		}));
+	const backlogForm: BacklogForm = {
+		enabled: form.backlogEnabled, site: form.backlogSite,
+		projectKey: form.backlogProjectKey, statuses: form.backlogStatuses,
+	};
+	const patchBacklog = (patch: Partial<BacklogForm>) => setForm((f) => ({
+		...f, backlogEnabled: patch.enabled ?? f.backlogEnabled,
+		backlogSite: patch.site ?? f.backlogSite,
+		backlogProjectKey: patch.projectKey ?? f.backlogProjectKey,
+		backlogStatuses: patch.statuses ?? f.backlogStatuses,
+	}));
 	const effectiveIntakeRepo = form.intakeRepo.trim() || deriveRepoPath(project.repo);
 	const reviewerWarning = reviewerTrustWarning(form.reviewerHarness);
 	const mutation = useMutation({
@@ -261,6 +277,7 @@ function SettingsBody({
 								}]
 							: undefined,
 						trackerIntake: buildIntake(intakeForm, config.trackerIntake),
+						trackerBacklog: buildBacklog(backlogForm, config.trackerBacklog),
 						autoReview: form.autoReview,
 					};
 			const { error } = await apiClient.PUT("/api/v1/projects/{id}", {
@@ -309,6 +326,7 @@ function SettingsBody({
 			setReplacementError(result.replacementError);
 			setValidationError(null);
 			void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+			void queryClient.invalidateQueries({ queryKey: ["project-backlog"] });
 			const workspaceRefresh = onSaved();
 
 			if (result.replacementSessionId) {
@@ -388,6 +406,7 @@ function SettingsBody({
 				setReplacementError(null);
 				const validation = validateProjectSettings(form, {
 					validateIntake: !isScratchProject,
+					validateBacklog: !isScratchProject,
 					originalDisplayName: project.name,
 				});
 				if (validation) {
@@ -398,6 +417,9 @@ function SettingsBody({
 								? t("settings.project.nameRequired")
 								: validation === "name_too_long"
 									? t("settings.project.nameTooLong", { max: MAX_PROJECT_DISPLAY_NAME_LEN })
+									: validation === "backlog_site_required" ? t("settings.project.backlogSiteRequired")
+									: validation === "backlog_project_key_required" ? t("settings.project.backlogProjectKeyRequired")
+									: validation === "backlog_statuses_required" ? t("settings.project.backlogStatusesRequired")
 									: t("settings.project.intakeAssigneeRequired"),
 					);
 					return;
@@ -668,6 +690,12 @@ function SettingsBody({
 					)}
 				</>
 			)}
+			{section === "backlog" && (!isScratchProject ? (
+				<ProjectSettingsSection title={t("settings.project.backlog")} grouped>
+					<JiraBacklogFields variant="settings" form={backlogForm} onChange={patchBacklog} />
+					{backlog.enabled && form.backlogEnabled && <JiraBacklogCredentialsNotice projectId={projectId} />}
+				</ProjectSettingsSection>
+			) : <p className="px-1 text-xs text-settings-muted">{t("settings.project.backlogScratchUnavailable")}</p>)}
 		</ProjectSettingsFormView>
 	);
 }
@@ -869,6 +897,7 @@ function scratchSupportedConfig(config: ProjectConfig): ProjectConfig {
 		reviewers: _reviewers,
 		autoReview: _legacyAutoReview,
 		trackerIntake: _trackerIntake,
+		trackerBacklog: _trackerBacklog,
 		...supported
 	} = config as ProjectConfig;
 	return supported;

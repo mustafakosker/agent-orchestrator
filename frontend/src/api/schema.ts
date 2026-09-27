@@ -983,6 +983,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{id}/backlog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the project's eligible tracker backlog tickets (display-only) */
+        get: operations["getProjectBacklog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{id}/config": {
         parameters: {
             query?: never;
@@ -1015,6 +1032,23 @@ export interface paths {
         head?: never;
         /** Remember project permissions for future sessions */
         patch: operations["setProjectPermissions"];
+        trace?: never;
+    };
+    "/api/v1/projects/backlog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List eligible tracker backlog tickets across projects with independent failures */
+        get: operations["getProjectsBacklog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/projects/clone": {
@@ -2893,6 +2927,53 @@ export interface components {
             data: string;
             mimeType?: string;
         };
+        BacklogFailure: {
+            message?: string;
+            projectId: string;
+            /** @enum {string} */
+            reason: "config_absent" | "credentials_missing" | "auth_failed" | "config_invalid" | "unavailable";
+            /** @enum {string} */
+            state: "not_configured" | "error";
+        };
+        BacklogItem: {
+            /** @description Assignee display name; empty when unassigned. */
+            assignee?: string;
+            /** @description Provider-native issue key, e.g. ACME-123. */
+            key: string;
+            /** @description AO project the ticket belongs to. */
+            projectId: string;
+            /** @description The provider's own workflow status name. */
+            status: string;
+            /** @description Issue summary. */
+            title: string;
+            /** @description Link to the issue in the provider. */
+            url: string;
+        };
+        BacklogResponse: {
+            /** @description Per-project failures on the all-projects board; successful projects remain visible. */
+            failures?: components["schemas"]["BacklogFailure"][];
+            /**
+             * Format: date-time
+             * @description When Items was fetched from the provider; null when never fetched.
+             */
+            fetchedAt: null | string;
+            /** @description Eligible tickets; always an array, never null. */
+            items: components["schemas"]["BacklogItem"][];
+            /** @description Provider message for an error state. */
+            message?: string;
+            /**
+             * @description Cause discriminator within a non-ok state.
+             * @enum {string}
+             */
+            reason?: "config_absent" | "credentials_missing" | "auth_failed" | "config_invalid" | "unavailable";
+            /** @description True when serving a retained entry after a failed refresh. */
+            stale: boolean;
+            /**
+             * @description Lane outcome.
+             * @enum {string}
+             */
+            state: "ok" | "not_configured" | "error";
+        };
         BrowserCommandRequest: {
             action: string;
             args?: {
@@ -3562,6 +3643,14 @@ export interface components {
             mode: string;
             reviewId: string;
         };
+        DomainTrackerBacklogConfig: {
+            enabled?: boolean;
+            projectKey?: string;
+            /** @enum {string} */
+            provider?: "jira";
+            site?: string;
+            statuses?: string[];
+        };
         EditConversationMessageRequest: {
             clientMessageId?: string;
             text: string;
@@ -4033,6 +4122,7 @@ export interface components {
             reviewers?: components["schemas"]["DomainReviewerConfig"][];
             sessionPrefix?: string;
             symlinks?: string[];
+            trackerBacklog?: components["schemas"]["DomainTrackerBacklogConfig"];
             trackerIntake?: components["schemas"]["TrackerIntakeConfig"];
             worker?: components["schemas"]["RoleOverride"];
         };
@@ -8088,6 +8178,47 @@ export interface operations {
             };
         };
     };
+    getProjectBacklog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project identifier (registry key). */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacklogResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     setProjectConfig: {
         parameters: {
             query?: never;
@@ -8183,6 +8314,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    getProjectsBacklog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacklogResponse"];
                 };
             };
             /** @description Internal Server Error */

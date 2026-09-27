@@ -20,6 +20,10 @@ import (
 // projectsvc.Manager; nil keeps routes registered but returns OpenAPI-backed 501s.
 type ProjectsController struct {
 	Mgr projectsvc.Manager
+	// Backlog serves the display-only tracker backlog lane. It is a separate
+	// dependency from Mgr because the lane is a read-only view with its own
+	// cache and failure semantics, and nothing in it may reach project writes.
+	Backlog BacklogManager
 }
 
 // Register mounts the project routes on the supplied router.
@@ -31,6 +35,8 @@ func (c *ProjectsController) Register(r chi.Router) {
 	r.Post("/projects/clone/cleanup", c.cleanupPreparedClone)
 	r.Post("/projects/initialize", c.initialize)
 	r.Get("/projects/{id}", c.get)
+	r.Get("/projects/{id}/backlog", c.backlog)
+	r.Get("/projects/backlog", c.backlogAll)
 	r.Put("/projects/{id}", c.updateSettings)
 	r.Put("/projects/{id}/config", c.setConfig)
 	r.Patch("/projects/{id}/permissions", c.setPermissions)
